@@ -1,0 +1,14 @@
+{
+  "name": "Egg Runner 2",
+  "short_name": "Egg Runner 2",
+  "description": "Egg Runner 2.0: the endless runner where whole eggs are treasure — collect them for score and shield protection.",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
