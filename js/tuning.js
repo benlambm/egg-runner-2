@@ -168,6 +168,17 @@
     TRAIL_GAP: 40,             // distance between ducklings in the line
     TRAIL_DELAY_MS: 95,        // each one copies the egg this much later
 
+    // ── THE FAR KITCHEN (looks only) ────────────────────────────────────
+    BACKDROP_LOOP_MS: 240000,  // the far end of the kitchen changes slowly and
+                               // then repeats (morning, afternoon, sunset,
+                               // night, morning…). One full loop takes this long.
+
+    // ── MUSIC ───────────────────────────────────────────────────────────
+    MUSIC_BPM: [118, 130],     // beats per minute at the start of a run, and at
+                               // top speed
+    MUSIC_VOLUME: 0.5,         // how loud the tune is next to the sound effects
+                               // (0 = silent, 1 = as loud as the effects)
+
     // ── INTERNAL ────────────────────────────────────────────────────────
     STEP_MS: 1000 / 120        // the rules tick 120 times a second
   };

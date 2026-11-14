@@ -114,13 +114,14 @@ Each is the simplest option that kept the game fair. Most are one number in `js/
 - A knife that hits you is knocked away, like any obstacle.
 
 **Screen and view**
+- The far end of the kitchen changes in a slow loop of four minutes (`BACKDROP_LOOP_MS`), from morning through sunset and night and back.
 - Tall screens look down on the track from a little higher. This shows more kitchen, not more track: things appear 2,600 units ahead on every screen.
 - Things you have passed fade out behind the egg so they never hide the spares.
 - The app can turn to any orientation.
 
 **Other**
 - Distance is shown in feet. Score is one point per inch travelled plus 25 per egg.
-- Sound effects and a small looping tune, each with its own switch.
+- Sound effects and a tune, each with its own switch. The tune is a boogie-style retro dance track: a kick on every beat, a bouncing octave bass, a shuffle, chord stabs, an echoing run of notes and a lead line. It builds over about 90 seconds, drops to a quiet breakdown and loops, and it speeds up a little with the run. A new run starts it from the top; coming back from a pause carries on.
 - Results titles are "Cracked!", "Chopped!" and "Eaten!". A tap or Enter skips the zoom after half a second.
 - After switching away the game stays paused until you press Keep Running.
 - Phones that support it buzz briefly on a hit.

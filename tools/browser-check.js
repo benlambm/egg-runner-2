@@ -187,6 +187,32 @@ const immortal = page => page.evaluate(() => { const r = ER.debug.run(); r.S.gen
     check('and plays', await mode(page) === 'playing' && (await state(page)).dist > 50);
   }
 
+  console.log('The tune');
+  if (loaded) {
+    // Play 40 seconds of the tune into a buffer (faster than real time) and measure it.
+    const tune = await page.evaluate(async () => {
+      const rate = 22050, seconds = 40, bpm = 122, len = 60 / bpm / 4;
+      const off = new OfflineAudioContext(1, rate * seconds, rate);
+      const band = ER.audio.createMusic(off, off.destination);
+      for (let n = 0, t = 0.05; t < seconds - 0.5; n++, t += len) band.play(n, t, len);
+      const data = (await off.startRendering()).getChannelData(0);
+      let peak = 0, sum = 0, bad = 0;
+      for (let i = 0; i < data.length; i++) { const v = data[i]; if (!isFinite(v)) bad++; peak = Math.max(peak, Math.abs(v)); sum += v * v; }
+      // Loudness in 10 ms slices, then how strongly it repeats once per beat.
+      const hop = Math.round(rate * 0.01), env = [];
+      for (let i = 0; i + hop < data.length; i += hop) { let e = 0; for (let j = 0; j < hop; j++) e += data[i + j] * data[i + j]; env.push(Math.sqrt(e / hop)); }
+      const mean = env.reduce((a, b) => a + b, 0) / env.length;
+      const corr = lag => { let c = 0, d = 0; for (let i = 0; i + lag < env.length; i++) { c += (env[i] - mean) * (env[i + lag] - mean); d += (env[i] - mean) * (env[i] - mean); } return c / d; };
+      const beat = Math.round(60 / bpm / 0.01);
+      const quietest = Math.min(...Array.from({ length: seconds - 2 }, (_, s) => Math.max(...env.slice(s * 100 + 100, s * 100 + 200))));
+      return { peak, rms: Math.sqrt(sum / data.length), bad, onBeat: corr(beat), offBeat: corr(Math.round(beat * 0.37)), quietest };
+    });
+    check('the tune plays (loudness ' + tune.rms.toFixed(3) + ')', tune.rms > 0.02 && tune.bad === 0, JSON.stringify(tune));
+    check('it never distorts (loudest moment ' + tune.peak.toFixed(2) + ' of 1.00)', tune.peak < 0.98, JSON.stringify(tune));
+    check('it has a steady beat', tune.onBeat > 0.3 && tune.onBeat > tune.offBeat + 0.2, JSON.stringify(tune));
+    check('it never drops out', tune.quietest > 0.01, JSON.stringify(tune));
+  }
+
   console.log('Speed of drawing');
   if (loaded) {
     const ms = await page.evaluate(() => {

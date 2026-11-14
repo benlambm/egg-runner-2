@@ -154,7 +154,7 @@
     show(null);
     updateHud(true);
     audio.sfx('start');
-    audio.startMusic();
+    audio.startMusic(true);          // a new run starts the song from the top
     if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
   }
 

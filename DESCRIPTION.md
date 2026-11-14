@@ -8,6 +8,8 @@ You are a cartoon egg running endlessly through a kitchen. The goal is to get as
 
 The game should look three-dimensional without playing any differently. You look down the track from just behind and above the egg, and the track stretches away toward a horizon at the far end of the kitchen. Things ahead start small in the distance and grow as they rush toward you, so you can see what is coming well before it arrives.
 
+The far end of the kitchen is not a still picture. It changes gradually in a long, slow loop: the light through the windows passes from morning to afternoon to sunset to night and round to morning again over a few minutes, and the far kitchen's own lights and colours follow. The change is slow enough that you only notice it now and then, and it never makes the track or anything on it harder to see.
+
 This is a look, not a new way of moving. It is the trick old arcade racing games used to fake depth on a flat picture. There are still exactly three lanes, you still only step left, step right, and jump, and nothing about how the egg moves gets more complicated.
 
 The egg's face always faces you, even though the egg is running away from you down the track. This works because the face is obviously a decoration, like a goofy face stuck on a cheap egg costume, and not a real face that has to point where the egg is going. That is true even for the plain egg with no costume on. The smile, the worried look, and the sweat drops are all part of the decoration, so they always show toward the player and never need to line up with the direction of the run.
@@ -89,4 +91,4 @@ The start screen and the game-over screen each have a Start Over button. It eras
 
 ## Feel
 
-Cheerful, silly, and readable at a glance. It is made for a child to play, so fairness and responsiveness matter more than difficulty. The chopping knives are the one deliberate exception: a bit of bad luck that you prepare for by keeping spares.
+Cheerful, silly, and readable at a glance. The music is an upbeat, bouncy retro dance track with a boogie feel. It is made for a child to play, so fairness and responsiveness matter more than difficulty. The chopping knives are the one deliberate exception: a bit of bad luck that you prepare for by keeping spares.
