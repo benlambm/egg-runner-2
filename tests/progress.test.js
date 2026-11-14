@@ -129,3 +129,160 @@ test('the game still works when storage is missing or broken', () => {
   assert.equal(odd.get().wearing, 'plain');
   assert.equal(odd.get().best, 0);
 });
+
+// ── two tabs of the game open at once ───────────────────────────────────
+// Each tab keeps its own copy of the progress. These checks open two
+// "tabs" on the same storage and make sure neither wipes out the other.
+
+test('two tabs: a costume unlocked in one tab is not wiped out by the other', () => {
+  const storage = fakeStorage();
+  const tabA = createProgress(storage, IDS, dice(3));
+  const tabB = createProgress(storage, IDS, dice(8));      // opened before A unlocks anything
+  const a = tabA.finishRun(1000).unlocked;
+  const b = tabB.finishRun(50).unlocked;
+  assert.notEqual(a, b, 'the second tab knows the first costume is already unlocked');
+  const reopened = createProgress(storage, IDS, dice(1)).get();
+  assert.deepEqual([...reopened.unlocked].sort(), [a, b].sort(), 'both costumes are kept');
+  assert.equal(reopened.best, 1000, 'and the longer best distance');
+  assert.equal(tabB.get().best, 1000);
+});
+
+test('two tabs: every kind of change picks up the other tab\'s progress first', () => {
+  const storage = fakeStorage();
+  const tabA = createProgress(storage, IDS, dice(3));
+  const tabB = createProgress(storage, IDS, dice(8));
+  const a = tabA.finishRun(700).unlocked;
+  tabB.setSwitch('music', false);                          // only a switch, in the other tab
+  let saved = createProgress(storage, IDS, dice(1)).get();
+  assert.deepEqual(saved.unlocked, [a]);
+  assert.equal(saved.music, false);
+  assert.equal(tabB.wear(a), true, 'the other tab can wear what the first one unlocked');
+  tabA.wear('plain');
+  saved = createProgress(storage, IDS, dice(1)).get();
+  assert.equal(saved.wearing, 'plain');
+  assert.equal(saved.music, false, 'and the switch is still off');
+  assert.equal(saved.best, 700);
+});
+
+test('two tabs: Start Over in one tab is not undone by the other', () => {
+  const storage = fakeStorage();
+  const tabA = createProgress(storage, IDS, dice(3));
+  const tabB = createProgress(storage, IDS, dice(8));
+  const old = tabB.finishRun(900).unlocked;
+  tabB.finishRun(100);
+  tabA.startOver();
+  assert.equal(tabB.wear(old), false, 'the erased costume cannot be put back on from the other tab');
+  const earned = tabB.finishRun(20).unlocked;
+  const saved = createProgress(storage, IDS, dice(1)).get();
+  assert.deepEqual(saved.unlocked, [earned], 'only the costume earned after Start Over');
+  assert.equal(saved.best, 20);
+});
+
+test('sync() says whether another tab changed anything', () => {
+  const storage = fakeStorage();
+  const tabA = createProgress(storage, IDS, dice(3));
+  const tabB = createProgress(storage, IDS, dice(8));
+  assert.equal(tabB.sync(), false, 'nothing new');
+  tabA.finishRun(10);
+  assert.equal(tabB.sync(), true);
+  assert.equal(tabB.get().unlocked.length, 1);
+  assert.equal(tabB.sync(), false, 'already picked up');
+  assert.equal(tabA.sync(), false, 'a tab\'s own saving is not news to itself');
+});
+
+// ── storage that misbehaves ─────────────────────────────────────────────
+
+test('when saving fails (storage full), progress is kept for as long as the game is open', () => {
+  // Reading works, writing does not: what a full or read-only storage does.
+  for (const how of ['throws', 'silently does nothing']) {
+    const base = fakeStorage();
+    const storage = Object.assign({}, base, { setItem() { if (how === 'throws') throw new Error('QuotaExceededError'); } });
+    const p = createProgress(storage, IDS, dice(4));
+    const a = p.finishRun(300).unlocked;
+    const b = p.finishRun(400).unlocked;
+    p.setSwitch('sound', false);
+    assert.equal(p.wear(a), true, how);
+    assert.deepEqual(p.get().unlocked, [a, b], how + ': nothing is forgotten mid-game');
+    assert.equal(p.get().best, 400);
+    assert.equal(p.get().wearing, a);
+    assert.equal(p.get().sound, false);
+  }
+});
+
+test('storage that answers with something that is not text is treated as unreadable', () => {
+  const weird = { getItem: () => ({ not: 'text' }), setItem() {}, removeItem() {} };
+  const p = createProgress(weird, IDS, dice(4));
+  const a = p.finishRun(10).unlocked;
+  p.finishRun(10);
+  assert.equal(p.get().unlocked.length, 2);
+  assert.equal(p.wear(a), true);
+});
+
+// ── damaged saves ───────────────────────────────────────────────────────
+
+test('a damaged save never shows nonsense: repeated costumes, impossible distances', () => {
+  const open = data => createProgress(fakeStorage({ [KEY]: typeof data === 'string' ? data : JSON.stringify(data) }), IDS, dice(2));
+  // The same costume listed many times counts once.
+  let p = open({ unlocked: ['chef', 'chef', 'wizard', 'chef'], wearing: 'chef' });
+  assert.deepEqual(p.get().unlocked, ['chef', 'wizard']);
+  assert.equal(p.get().wearing, 'chef');
+  // A best distance nobody could run is ignored (1e999 reads back as "infinity").
+  for (const best of ['1e999', '1e300', '-1e999', '"far"', 'null', '[5]']) {
+    p = open('{"best":' + best + ',"unlocked":["ninja"]}');
+    assert.equal(p.get().best, 0, 'best ' + best);
+    assert.deepEqual(p.get().unlocked, ['ninja'], 'the rest of the save is still used');
+  }
+  assert.equal(open({ best: 123456.5 }).get().best, 123456.5, 'an ordinary best distance is kept exactly');
+  // The count of runs is a whole number, zero or more.
+  for (const runs of ['-4.5', '1e999', '"3"', 'null']) assert.equal(open('{"runs":' + runs + '}').get().runs, 0, 'runs ' + runs);
+  assert.equal(open({ runs: 7 }).get().runs, 7);
+  // Switches are only off when the save clearly says off.
+  p = open({ sound: 0, music: 'no' });
+  assert.equal(p.get().sound, true); assert.equal(p.get().music, true);
+  p = open({ sound: false, music: false });
+  assert.equal(p.get().sound, false); assert.equal(p.get().music, false);
+  // Things that are not a save at all.
+  for (const junk of ['[]', 'null', '"x"', '42', 'true', '{"unlocked":"chef"}', '{"unlocked":{"0":"chef"}}', '{"unlocked":[1,null,{},["chef"]]}', '']) {
+    p = open(junk);
+    assert.deepEqual(p.get(), { unlocked: [], wearing: 'plain', best: 0, runs: 0, sound: true, music: true }, junk);
+  }
+});
+
+test('an enormous save loads quickly and is tidied', () => {
+  const huge = [];
+  for (let i = 0; i < 150000; i++) huge.push('junk' + i);
+  for (let i = 0; i < 150000; i++) huge.push('chef', 'wizard');
+  const storage = fakeStorage({ [KEY]: JSON.stringify({ unlocked: huge, wearing: 'wizard', best: 99, extra: 'x'.repeat(200000) }) });
+  const t0 = Date.now();
+  const p = createProgress(storage, IDS, dice(2));
+  assert.ok(Date.now() - t0 < 1500, 'took ' + (Date.now() - t0) + ' ms');
+  assert.equal(p.get().unlocked.length, 2);
+  assert.deepEqual(p.get().unlocked, ['chef', 'wizard']);
+  assert.equal(p.get().wearing, 'wizard');
+  p.wear('chef');
+  assert.ok(storage.getItem(KEY).length < 300, 'and the next save is small again');
+});
+
+test('a save written by a newer version still loads what this version understands', () => {
+  const storage = fakeStorage({ [KEY]: JSON.stringify({ version: 9, unlocked: ['chef', 'a-costume-from-the-future'], wearing: 'a-costume-from-the-future', best: 2500, sound: false, coins: 12 }) });
+  const p = createProgress(storage, IDS, dice(2));
+  assert.deepEqual(p.get().unlocked, ['chef']);
+  assert.equal(p.get().wearing, 'plain', 'a costume this version does not have is not worn');
+  assert.equal(p.get().best, 2500);
+  assert.equal(p.get().sound, false);
+});
+
+test('Start Over erases nothing but this game\'s own progress', () => {
+  const storage = fakeStorage({ 'another-game.save': 'keep me', 'egg-runner-2.other': 'keep me too', er_best: '4000' });
+  const p = createProgress(storage, IDS, dice(11));
+  p.setSwitch('sound', false);
+  p.finishRun(5000);
+  p.startOver();
+  assert.equal(storage.getItem('another-game.save'), 'keep me');
+  assert.equal(storage.getItem('egg-runner-2.other'), 'keep me too');
+  assert.equal(storage.getItem('er_best'), null, 'the older flat game\'s leftovers go');
+  const again = createProgress(storage, IDS, dice(11)).get();
+  assert.deepEqual(again.unlocked, []);
+  assert.equal(again.sound, false, 'the sound switch is a setting, so it stays as it was');
+  assert.equal(again.music, true);
+});

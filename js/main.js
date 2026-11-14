@@ -26,8 +26,14 @@
   var run = backdropRun();        // the run being shown (a quiet one behind menus)
   var sinceOver = 0;              // ms since the run ended (drives the zoom)
   var lastFrame = 0;
+  var fingers = {};               // each finger (or mouse button) now down on the picture, by its id
   var confirmFrom = null;         // which button opened "Are you sure?"
   var resultsAt = 0;              // when the results appeared (stops a held key skipping them)
+  // The results ignore key presses and taps for this long after they appear.
+  // A child tapping or pressing to skip the zoom often presses twice, and
+  // the second press must not land on whichever button has just appeared
+  // under the finger.
+  var RESULTS_GUARD_MS = 500;
 
   // A calm run with only eggs on it, shown behind the menus.
   function backdropRun() {
@@ -41,6 +47,33 @@
   function show(name) {
     for (var k in screens) screens[k].hidden = k !== name;
     $('hud').hidden = !(name === null && (mode === 'playing' || mode === 'ending'));
+    fitCards();
+    // The keyboard must not be left on a button that has just been hidden
+    // (browsers take a moment to notice, and a key pressed in that moment
+    // would go to the hidden button).
+    var a = document.activeElement;
+    if (a && a !== document.body && a.blur && !a.getClientRects().length) a.blur();
+  }
+
+  // A menu card that is too tall for the screen is drawn a little smaller, so
+  // that every button can be reached without scrolling. The style sheet
+  // already lays the cards out for common screens; this is the safety net
+  // for the ones in between, and for phones whose own lettering is wider
+  // than expected. Below CARD_SMALLEST the words would be too small to
+  // read, so from there the card scrolls instead (only tiny screens).
+  var CARD_SMALLEST = 0.8;
+  function fitCards() {
+    var cards = document.querySelectorAll('.screen:not([hidden]) > .card');
+    for (var i = 0; i < cards.length; i++) {
+      var card = cards[i], size = 1;
+      card.style.zoom = '';
+      // Words re-wrap as the card shrinks, so the first guess can be a
+      // little out: look again, up to three times.
+      for (var tries = 0; tries < 3 && size > CARD_SMALLEST && card.scrollHeight > card.clientHeight + 1; tries++) {
+        size = Math.max(CARD_SMALLEST, size * card.clientHeight / card.scrollHeight - 0.01);
+        card.style.zoom = size;
+      }
+    }
   }
 
   function drawEggPic(cv, costume) {
@@ -55,9 +88,22 @@
     c.restore();
   }
 
+  // Slide a costume strip sideways until the costume being worn is in the
+  // middle. Only the strip moves. (Asking the browser to "scroll it into
+  // view" also slid the whole card down on short screens, so the menu opened
+  // with its title cut off.)
+  function showWorn(strip) {
+    var tile = strip.querySelector('[aria-pressed="true"]');
+    if (!tile) return;
+    var t = tile.getBoundingClientRect(), s = strip.getBoundingClientRect();
+    var shrunk = s.width / strip.offsetWidth || 1;      // less than 1 when fitCards has shrunk the card
+    strip.scrollLeft += ((t.left + t.width / 2) - (s.left + s.width / 2)) / shrunk;
+  }
+
   // The costume picker: every unlocked costume, plain first, then locked ones.
   function buildStrip(strip, countEl) {
     save = progress.get();
+    var slid = strip.scrollLeft;
     strip.textContent = '';
     function has(cos) { return cos.id === 'plain' || save.unlocked.indexOf(cos.id) >= 0; }
     // Costumes you have come first, locked ones after.
@@ -73,11 +119,25 @@
         drawEggPic(pic, cos.id);
         name.textContent = cos.name;
         tile.type = 'button';
+        tile.setAttribute('data-costume', cos.id);
         tile.setAttribute('aria-pressed', String(save.wearing === cos.id));
         tile.addEventListener('click', function () {
           audio.unlock(); audio.sfx('click');
           progress.wear(cos.id);
           refreshCostumes(true);
+          // The picker has just been drawn again, and the button that was
+          // pressed is gone. Put the keyboard's place back on its
+          // replacement; otherwise the next Enter would start a run.
+          var again = strip.querySelector('[data-costume="' + cos.id + '"]');
+          if (again) again.focus({ preventScroll: true });
+        });
+        // Moving along the costumes with Tab: slide the strip so the one
+        // the keyboard is on is fully showing (browsers leave it half
+        // hidden at the edge). Only for the keyboard: sliding the strip
+        // under a finger or a mouse in mid-press would make the press miss.
+        tile.addEventListener('focus', function () {
+          try { if (tile.matches(':focus-visible')) tile.scrollIntoView({ block: 'nearest', inline: 'nearest' }); }
+          catch (e) { /* an old browser: leave the strip where it is */ }
         });
       } else {
         var c = pic.getContext('2d');
@@ -91,10 +151,8 @@
       }
       tile.appendChild(pic); tile.appendChild(name);
       strip.appendChild(tile);
-      if (have && save.wearing === cos.id) setTimeout(function () {
-        if (tile.scrollIntoView) tile.scrollIntoView({ block: 'nearest', inline: 'center' });
-      }, 0);
     });
+    strip.scrollLeft = slid;             // drawing it again must not make it jump
     countEl.textContent = save.unlocked.length + ' of ' + progress.total;
   }
   // picked: true when the player has just chosen a costume themselves.
@@ -111,6 +169,7 @@
       $('resUnlockLabel').textContent = 'Wearing';
       $('resUnlockName').textContent = C.BY_ID[save.wearing].name;
     }
+    fitCards();                        // the words just changed, and so may the card's height
   }
   function refreshSwitches() {
     save = progress.get();
@@ -130,17 +189,35 @@
     refreshSwitches();
   }
 
+  // Everything on the start screen that depends on what is saved.
+  function refreshMenu() {
+    save = progress.get();
+    $('menuBest').hidden = !(save.best > 0);
+    $('menuBest').textContent = 'Best: ' + feet(save.best) + ' ft';
+    refreshCostumes(); refreshSwitches();
+  }
   function showMenu() {
     mode = 'menu';
     audio.stopMusic();
     run = backdropRun();
     renderer.fx.clear();
-    save = progress.get();
-    $('menuBest').hidden = !(save.best > 0);
-    $('menuBest').textContent = 'Best: ' + feet(save.best) + ' ft';
-    refreshCostumes(); refreshSwitches();
+    refreshMenu();
     show('menu');
+    showWorn($('menuStrip'));
   }
+
+  // Another tab of the game may have saved something (a new costume, Start
+  // Over, a sound switch). Pick it up and show it here too, so the two tabs
+  // never disagree about what has been unlocked.
+  function pickUpOtherTabs() {
+    if (!progress.sync()) return;
+    save = progress.get();
+    audio.setSound(save.sound); audio.setMusic(save.music);
+    if (mode === 'playing' && !audio.musicPlaying()) audio.startMusic();   // the tune was switched back on over there
+    if (mode === 'menu') refreshMenu();
+    else { refreshCostumes(false); refreshSwitches(); }
+  }
+  window.addEventListener('storage', pickUpOtherTabs);
 
   // ── a run ────────────────────────────────────────────────────────────
   // seed: only the developer tools pass one, to get the same course twice.
@@ -161,6 +238,7 @@
   function pause() {
     if (mode !== 'playing') return;
     mode = 'paused';
+    fingers = {};                    // a swipe cut off by the pause is over
     audio.stopMusic();
     audio.sleep();
     refreshSwitches();
@@ -206,8 +284,15 @@
     }
     drawEggPic($('resEgg'), save.wearing);
     show('results');
+    showWorn($('resStrip'));
     resultsAt = performance.now();
   }
+  // No button on the results can be pressed in the first moments (see
+  // RESULTS_GUARD_MS). Listening "on the way down" lets one rule cover every
+  // button on the screen, including the costume tiles.
+  $('results').addEventListener('click', function (e) {
+    if (performance.now() - resultsAt < RESULTS_GUARD_MS) { e.stopPropagation(); e.preventDefault(); }
+  }, true);
 
   var hudShown = { d: -1, s: -1, e: -1 };
   function updateHud(force) {
@@ -260,6 +345,7 @@
     var dt = lastFrame ? Math.min(100, now - lastFrame) : 16;
     lastFrame = now;
     var zoom = 0;
+    fitIfChanged();
 
     if (mode === 'playing') {
       run.update(dt);
@@ -289,8 +375,22 @@
 
   document.addEventListener('keydown', function (e) {
     var k = e.key;
+    // Ctrl, Alt and Command combinations belong to the browser (bookmark,
+    // print, go back). The game leaves them alone.
+    if (e.ctrlKey || e.altKey || e.metaKey) return;
+    // Enter held down on a button would press it over and over, and then
+    // press whichever button the keyboard lands on next ("No" would open
+    // and shut the question in a flicker). A held key counts once here too.
+    if (e.repeat && k === 'Enter' && e.target && e.target.tagName === 'BUTTON') { e.preventDefault(); return; }
     if (!$('confirm').hidden) {
       if (k === 'Escape') { closeConfirm(); e.preventDefault(); }
+      // Tab stays on the two answers. Otherwise it would walk on to the
+      // buttons hidden behind "Are you sure?", and Enter there could start
+      // a run that nobody can see or steer.
+      else if (k === 'Tab') {
+        (document.activeElement === $('confirmNo') ? $('confirmYes') : $('confirmNo')).focus();
+        e.preventDefault();
+      }
       return;
     }
     audio.unlock();
@@ -306,7 +406,9 @@
       return;
     }
     if (mode === 'ending') {
-      if ((k === 'Enter' || k === ' ') && sinceOver > 500) { sinceOver = T.ENDING_ZOOM_MS; e.preventDefault(); }
+      // A fresh press skips the zoom. A key still held down from the run
+      // (Space, to jump) does not.
+      if ((k === 'Enter' || k === ' ') && !e.repeat && sinceOver > 500) { sinceOver = T.ENDING_ZOOM_MS; e.preventDefault(); }
       return;
     }
     if (mode === 'paused' && (k === 'Escape' || k === 'p' || k === 'P')) { resume(); e.preventDefault(); return; }
@@ -315,7 +417,7 @@
     var onButton = e.target && e.target.tagName === 'BUTTON';
     if ((k === 'Enter' || k === ' ') && !onButton && !e.repeat) {
       if (mode === 'menu') startRun();
-      else if (mode === 'results') { if (performance.now() - resultsAt > 500) startRun(); }
+      else if (mode === 'results') { if (performance.now() - resultsAt > RESULTS_GUARD_MS) startRun(); }
       else if (mode === 'paused') resume();
       e.preventDefault();
     }
@@ -323,17 +425,20 @@
 
   // Swipes. The move fires as soon as the finger has travelled far enough
   // (not when it lifts), and one swipe is always exactly one move.
-  var touch = null;
+  // Every finger on the screen is followed on its own (two thumbs can swipe
+  // at once, or one can rest on the glass while the other plays). Following
+  // only the newest finger dropped the other one's swipe.
   function swipeSize() { return Math.max(18, Math.min(34, Math.min(window.innerWidth, window.innerHeight) * 0.05)); }
   canvas.addEventListener('pointerdown', function (e) {
     audio.unlock();
     if (mode === 'ending' && sinceOver > 500) { sinceOver = T.ENDING_ZOOM_MS; return; }
-    touch = { id: e.pointerId, x: e.clientX, y: e.clientY, used: false };
+    fingers[e.pointerId] = { x: e.clientX, y: e.clientY, used: false };
     if (canvas.setPointerCapture) { try { canvas.setPointerCapture(e.pointerId); } catch (err) { /* fine */ } }
     e.preventDefault();
   });
   canvas.addEventListener('pointermove', function (e) {
-    if (!touch || touch.used || e.pointerId !== touch.id) return;
+    var touch = fingers[e.pointerId];
+    if (!touch || touch.used) return;
     var dx = e.clientX - touch.x, dy = e.clientY - touch.y, need = swipeSize();
     if (Math.abs(dx) < need && Math.abs(dy) < need) return;
     touch.used = true;
@@ -341,7 +446,7 @@
     else if (dy < 0) act('jump');
     e.preventDefault();
   });
-  function endTouch(e) { if (touch && e.pointerId === touch.id) touch = null; }
+  function endTouch(e) { delete fingers[e.pointerId]; }
   canvas.addEventListener('pointerup', endTouch);
   canvas.addEventListener('pointercancel', endTouch);
   document.addEventListener('contextmenu', function (e) { e.preventDefault(); });
@@ -364,37 +469,60 @@
   press('musicBtn', function () { toggle('music'); });
   press('pauseMusicBtn', function () { toggle('music'); });
 
-  // Start Over, with "Are you sure?" first.
+  // Start Over, with "Are you sure?" first. While the question is showing,
+  // the screen behind it is switched off ("inert"), so nothing on it can be
+  // pressed, whether by keyboard or by a screen reader.
+  function showConfirm(on) {
+    $('confirm').hidden = !on;
+    screens.menu.inert = screens.results.inert = on;
+    fitCards();
+  }
   function closeConfirm() {
-    $('confirm').hidden = true;
+    showConfirm(false);
     if (confirmFrom) confirmFrom.focus();
   }
   Array.prototype.forEach.call(document.querySelectorAll('[data-start-over]'), function (btn) {
     btn.addEventListener('click', function () {
       audio.unlock(); audio.sfx('click');
       confirmFrom = btn;
-      $('confirm').hidden = false;
+      showConfirm(true);
       $('confirmNo').focus();
     });
   });
   press('confirmNo', function () { audio.sfx('click'); closeConfirm(); });
   press('confirmYes', function () {
     progress.startOver();
-    $('confirm').hidden = true;
+    showConfirm(false);
     audio.sfx('lost');
     showMenu();                    // back to the start, plain egg, as if never played
+    $('playBtn').focus();          // the button just pressed is gone; keep the keyboard somewhere sensible
   });
 
   // Pause when the player switches away; stay paused until they choose to go on.
   document.addEventListener('visibilitychange', function () {
     if (document.hidden) { pause(); audio.sleep(); }
-    else if (mode !== 'paused') audio.wake();
+    else {
+      if (mode !== 'paused') audio.wake();
+      pickUpOtherTabs();             // in case this tab was asleep when another one saved
+    }
   });
   window.addEventListener('blur', pause);
   window.addEventListener('pagehide', pause);
 
   // Refit the picture straight away when the window changes or the phone turns.
-  function refit() { renderer.resize(); }
+  var fitW = canvas.clientWidth, fitH = canvas.clientHeight, fitDpr = window.devicePixelRatio;
+  function refit() {
+    renderer.resize();
+    fitCards();
+    fitW = canvas.clientWidth; fitH = canvas.clientHeight; fitDpr = window.devicePixelRatio;
+  }
+  // Called every frame. The browser does not always announce a change: a
+  // window dragged to a sharper or blurrier monitor keeps its size, and some
+  // app wrappers skip the resize notice when the phone turns. Comparing
+  // three numbers costs nothing and means the picture can never stay wrong.
+  function fitIfChanged() {
+    if (canvas.clientWidth !== fitW || canvas.clientHeight !== fitH || window.devicePixelRatio !== fitDpr) refit();
+  }
   window.addEventListener('resize', refit);
   window.addEventListener('orientationchange', function () { setTimeout(refit, 60); });
   if (window.visualViewport) window.visualViewport.addEventListener('resize', refit);

@@ -14,18 +14,46 @@
   var T = (root.ER && root.ER.TUNING) || {};
   var ac = null, master = null, musicGain = null, music = null, noiseBuf = null;
   var soundOn = true, musicOn = true, musicTimer = null, pace = 0;
+  var asleep = false;            // true from sleep() until the next wake()
+  var MAIN_VOLUME = 0.9;         // everything (tune and effects) passes through this on its way out
 
   function musicVolume() { return T.MUSIC_VOLUME === undefined ? 0.5 : T.MUSIC_VOLUME; }
+
+  // The browser answers "pause sound" and "carry on" with a promise that can
+  // fail (for example when it wants a tap first). Sound is never worth an
+  // error, so a failure is ignored; the next tap or key press tries again.
+  function quietly(promise) {
+    if (promise && promise.catch) promise.catch(function () { /* try again on the next tap */ });
+  }
 
   function unlock() {
     if (!ac) {
       var Ctor = root.AudioContext || root.webkitAudioContext;
       if (!Ctor) return;
-      try { ac = new Ctor(); } catch (e) { ac = null; return; }
-      master = ac.createGain(); master.gain.value = 0.9; master.connect(ac.destination);
-      musicGain = ac.createGain(); musicGain.gain.value = musicVolume(); musicGain.connect(master);
+      try {
+        ac = new Ctor();
+        master = ac.createGain(); master.gain.value = MAIN_VOLUME; master.connect(ac.destination);
+        musicGain = ac.createGain(); musicGain.gain.value = musicVolume(); musicGain.connect(master);
+      } catch (e) { ac = null; return; }
     }
-    if (ac.state === 'suspended' && ac.resume) ac.resume();
+    wake();
+  }
+
+  // Let sound run again. Anything other than "running" needs waking: a phone
+  // puts sound to sleep on its own for a call or the lock screen, and iPhones
+  // call that "interrupted" rather than "suspended". `asleep` covers a wake
+  // that comes straight after a sleep, before the browser has caught up.
+  function wake() {
+    if (!ac || !ac.resume || ac.state === 'closed') return;
+    if (ac.state === 'running' && !asleep) return;
+    asleep = false;
+    try { quietly(ac.resume()); } catch (e) { /* stay silent */ }
+  }
+  // Silence everything while the game is paused or in the background.
+  function sleep() {
+    if (!ac || !ac.suspend || ac.state === 'closed') return;
+    asleep = true;
+    try { quietly(ac.suspend()); } catch (e) { /* nothing to pause */ }
   }
 
   // One second of hiss, made once and reused by every cymbal, clap and crack.
@@ -93,7 +121,8 @@
 
   function sfx(name, o) {
     if (!soundOn || !ac || ac.state !== 'running') return;
-    if (SOUNDS[name]) SOUNDS[name](o);
+    // A sound that cannot be made must never stop the game.
+    try { if (SOUNDS[name]) SOUNDS[name](o); } catch (e) { /* play on in silence */ }
   }
 
   // ── the tune: a boogie-style retro dance track ───────────────────────
@@ -170,6 +199,11 @@
     arpBus.connect(echo); echo.connect(echoBack); echoBack.connect(echo); echo.connect(echoOut); echoOut.connect(pump);
     var hiss = noiseBuffer(ctx);
 
+    // Notes are handed to the browser a little before they are due. This is
+    // the list of those that have not started yet, so that stopping the tune
+    // can take them back (see hush below).
+    var linedUp = [];
+
     function note(type, freq, t, dur, vol, dest, slideTo) {
       var o = ctx.createOscillator(), g = ctx.createGain();
       o.type = type; o.frequency.setValueAtTime(freq, t);
@@ -179,6 +213,7 @@
       g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
       o.connect(g); g.connect(dest);
       o.start(t); o.stop(t + dur + 0.02);
+      linedUp.push({ at: t, out: g });
     }
     function burst(dest, t, dur, vol) {
       var s = ctx.createBufferSource(), g = ctx.createGain();
@@ -186,6 +221,20 @@
       g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
       s.connect(g); g.connect(dest);
       s.start(t, (t * 7.3) % 0.8); s.stop(t + dur + 0.02);
+      linedUp.push({ at: t, out: g });
+    }
+    // Take back every note that has not started yet. Without this, pausing
+    // froze those notes in the queue and they played on top of the tune when
+    // it carried on, or as a stray blip on the menu after End Run.
+    // Notes already sounding are left alone; they fade with the tune.
+    function hush() {
+      var now = ctx.currentTime;
+      for (var i = 0; i < linedUp.length; i++) {
+        if (linedUp[i].at > now) linedUp[i].out.disconnect();
+      }
+      linedUp.length = 0;
+      pump.gain.cancelScheduledValues(now);                      // and the dips lined up with them
+      pump.gain.setTargetAtTime(1, now, 0.03);
     }
     function kick(t, vol) {
       note('sine', 150, t, 0.24, vol, drums, 42);
@@ -200,6 +249,8 @@
     function play(n, t, len) {
       var step = n % 16, barNo = Math.floor(n / 16);
       var sec, barInSec;
+      // Notes that have started no longer need remembering.
+      while (linedUp.length && linedUp[0].at <= ctx.currentTime) linedUp.shift();
       if (barNo < INTRO_BARS) { sec = { kick: 1, clap: 0, bass: 1, stab: 0, arp: 0, lead: 0 }; barInSec = barNo + 4; }
       else {
         var b = barNo - INTRO_BARS;
@@ -234,7 +285,7 @@
       // The lead tune.
       if (sec.lead && LEAD[barInSec][step]) note('square', hz(LEAD[barInSec][step]), t, len * 2.6, 0.08, stabBus);
     }
-    return { play: play };
+    return { play: play, hush: hush };
   }
 
   // The tune runs a little faster as the run does.
@@ -258,7 +309,8 @@
   function startMusic(fromTheTop) {
     stopMusic();
     if (!musicOn || !soundOn || !ac) return;
-    if (!music) music = createMusic(ac, musicGain);
+    // If this browser cannot build the band, the game plays on without a tune.
+    if (!music) { try { music = createMusic(ac, musicGain); } catch (e) { music = null; return; } }
     if (fromTheTop) stepNo = 0;
     else stepNo -= stepNo % 16;                          // pick up at the start of the bar
     nextNoteAt = 0;
@@ -268,7 +320,8 @@
   }
   function stopMusic() {
     if (musicTimer) { clearInterval(musicTimer); musicTimer = null; }
-    // Fade quickly so notes already lined up are not heard after the stop.
+    if (music) music.hush();             // notes lined up but not yet started
+    // Fade quickly so notes already sounding do not end with a click.
     if (ac && musicGain) {
       musicGain.gain.cancelScheduledValues(ac.currentTime);
       musicGain.gain.setTargetAtTime(0.0001, ac.currentTime, 0.03);
@@ -281,11 +334,10 @@
     setSound: function (on) { soundOn = !!on; if (!on) stopMusic(); },
     setMusic: function (on) { musicOn = !!on; if (!on) stopMusic(); },
     setPace: function (p) { pace = Math.max(0, Math.min(1, p || 0)); },
-    // Silence everything while the game is paused or in the background.
-    sleep: function () { if (ac && ac.state === 'running' && ac.suspend) ac.suspend(); },
-    wake: function () { if (ac && ac.state === 'suspended' && ac.resume) ac.resume(); },
-    // For the developer tools: build the tune on any audio context.
-    createMusic: createMusic,
+    sleep: sleep, wake: wake,
+    // For the developer tools: build the tune on any audio context, and how
+    // loud the game then plays it (the tune's own volume is in the tuning file).
+    createMusic: createMusic, mainVolume: MAIN_VOLUME,
     musicPlaying: function () { return !!musicTimer; }
   };
 })(typeof self !== 'undefined' ? self : globalThis);
