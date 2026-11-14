@@ -2,7 +2,9 @@
 
 You are a cartoon egg running endlessly through a kitchen. Get as far as you can before you crack.
 
-This branch is the next edition, rebuilt from scratch. The live game on `main` is the older flat version and is not touched by anything here. How the game plays is defined in [DESCRIPTION.md](DESCRIPTION.md); this file covers how the build is put together.
+**Play it:** [benlambm.github.io/egg-runner-2](https://benlambm.github.io/egg-runner-2/)
+
+This edition was rebuilt from scratch and replaces the older flat version. How the game plays is defined in [DESCRIPTION.md](DESCRIPTION.md); this file covers how the build is put together.
 
 ## Try it
 
@@ -67,8 +69,8 @@ There are no asset files except the two app icons.
 
 ## Shipping
 
-- Work on a branch. Every push to `main` redeploys the live game.
-- Do not merge to `main` until Ben has played this build and says to ship it.
+- Every push to `main` redeploys the live game, and a child plays it. Work on a branch.
+- Merge to `main` only when Ben has played the build and says to ship it.
 - When any game file changes, bump `VERSION` in `sw.js` (the part after the `egg-runner-2-` prefix; keep the prefix, because old copies are recognised by it). That is what makes phones that already have the game fetch the new files.
 
 ## Choices made where the description is silent
