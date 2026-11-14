@@ -143,10 +143,11 @@
   }
 
   // ── a run ────────────────────────────────────────────────────────────
-  function startRun() {
+  // seed: only the developer tools pass one, to get the same course twice.
+  function startRun(seed) {
     audio.unlock();
     audio.wake();
-    run = ER.rules.createRun({ seed: (Math.random() * 4294967296) >>> 0 });
+    run = ER.rules.createRun({ seed: typeof seed === 'number' ? seed >>> 0 : (Math.random() * 4294967296) >>> 0 });
     renderer.fx.clear();
     sinceOver = 0;
     mode = 'playing';
@@ -352,8 +353,8 @@
   function press(id, fn) {
     $(id).addEventListener('click', function () { audio.unlock(); fn(); });
   }
-  press('playBtn', startRun);
-  press('againBtn', startRun);
+  press('playBtn', function () { startRun(); });
+  press('againBtn', function () { startRun(); });
   press('homeBtn', function () { audio.sfx('click'); showMenu(); });
   press('pauseBtn', pause);
   press('resumeBtn', resume);
@@ -411,6 +412,7 @@
   window.ER.debug = {
     mode: function () { return mode; },
     run: function () { return run; },
+    startRun: startRun,
     progress: progress,
     renderer: renderer
   };

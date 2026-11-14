@@ -6,6 +6,7 @@
   "scripts": {
     "test": "node --test tests/*.test.js",
     "test:browser": "node tools/browser-check.js",
+    "shots": "node tools/shots.js",
     "serve": "python3 -m http.server 8080"
   }
 }
