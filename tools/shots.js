@@ -155,20 +155,21 @@ function serve() {
       await page.waitForTimeout(1200);
       await shot(page, 'eaten');
     } else if (scene === 'sprites') {
-      await sheet(page, 'sprites', 1500, 1300, () => {
+      // Every picture twice: on the floor's colour, then on the track's.
+      await sheet(page, 'sprites', 1500, 2600, () => {
         const cv = document.getElementById('sheet'), c = cv.getContext('2d'), A = ER.art;
-        c.fillStyle = '#f6e7c8'; c.fillRect(0, 0, 1500, 650); c.fillStyle = '#46b3c2'; c.fillRect(0, 650, 1500, 650);
-        const names = Object.keys(A.PICS);
+        const names = Object.keys(A.PICS), HALF = 1300;
+        c.fillStyle = '#f6e7c8'; c.fillRect(0, 0, 1500, HALF); c.fillStyle = '#46b3c2'; c.fillRect(0, HALF, 1500, HALF);
         for (let half = 0; half < 2; half++) {
-          let x = 20, y = 0, rowH = 0;
+          let x = 20, y = 10, rowH = 0;
           for (const name of names) {
-            const p = A.PICS[name], k = name === 'frame' ? 0.7 : 1.8, w = (p.w + 30) * k, h = (p.h + p.d + 40) * k;
+            const p = A.PICS[name], k = name === 'frame' ? 0.7 : 1.5, w = (p.w + 30) * k, h = (p.h + p.d + 44) * k;
             if (x + w > 1480) { x = 20; y += rowH; rowH = 0; }
             rowH = Math.max(rowH, h);
             const sp = A.sprite(name, 3);
-            c.drawImage(sp.img, x + w / 2 - sp.ox * k, half * 650 + y + h - 30 - sp.oy * k, sp.w * k, sp.h * k);
+            c.drawImage(sp.img, x + w / 2 - sp.ox * k, half * HALF + y + h - 32 - sp.oy * k, sp.w * k, sp.h * k);
             c.fillStyle = '#2b1a10'; c.font = '700 15px system-ui'; c.textAlign = 'center';
-            c.fillText(name, x + w / 2, half * 650 + y + h - 6);
+            c.fillText(name, x + w / 2, half * HALF + y + h - 8);
             x += w;
           }
         }
@@ -186,7 +187,7 @@ function serve() {
           draw(0, 220, 1.5, { mood: 'worried', t: 260 });                    // worried
           draw(78, 190, 1.5, { air: 0.9, vy: 0.4 });                         // jumping
           if (i < 3) draw(0, 250, 0.01, {});                                 // (spacer)
-          c.fillStyle = '#2b1a10'; c.font = '700 20px system-ui'; c.textAlign = 'center'; c.fillText(cos.name, x0, y0 - 262);
+          c.fillStyle = '#ffffff'; c.font = '700 18px system-ui'; c.textAlign = 'left'; c.fillText(cos.name, col * 260 + 14, y0 + 240);
         });
         // The cracked look, on the last free cells.
         ['plain', 'chef', 'ninja', 'robot', 'mummy'].forEach((id, j) => {

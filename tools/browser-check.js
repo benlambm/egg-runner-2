@@ -733,6 +733,62 @@ function lookAt(id, mayScroll) {
     check('it never drops out', tune.quietest > 0.01, JSON.stringify(tune));
   }
 
+  console.log('The far kitchen');
+  if (loaded) {
+    const far = await page.evaluate(() => {
+      const R = ER.debug.renderer, cv = document.getElementById('game'), c = cv.getContext('2d');
+      ER.debug.startRun(3);
+      const r = ER.debug.run(); r.S.gen.on = false; r.S.things.length = 0; r.S.gates.length = 0; r.S.dog.visits.length = 0;
+      const o = { costume: 'plain', zoom: 0, sinceOver: 0, frozen: true };
+      const grab = (from, share) => c.getImageData(0, Math.floor(cv.height * from), cv.width, Math.floor(cv.height * share)).data;
+      // Average difference between two pictures, in brightness levels (0 to 255).
+      const apart = (a, b) => { let sum = 0; for (let i = 0; i < a.length; i += 4) sum += Math.abs(a[i] - b[i]) + Math.abs(a[i + 1] - b[i + 1]) + Math.abs(a[i + 2] - b[i + 2]); return sum / (a.length / 4) / 3; };
+      const wallAt = f => { R.setBackdropTime(f); R.draw(r, 1000, o); return grab(0, 0.3); };
+      const floorAt = f => { R.setBackdropTime(f); R.draw(r, 1000, o); return grab(0.5, 0.45); };
+      const start = wallAt(0);
+      let prev = start, biggestStep = 0;
+      for (let i = 1; i <= 120; i++) { const now = wallAt(i / 120); biggestStep = Math.max(biggestStep, apart(prev, now)); prev = now; }
+      const out = {
+        wrap: apart(start, prev),                               // the end of a lap against its start
+        biggestStep,
+        dayToNight: apart(wallAt(0.25), wallAt(0.75)),
+        floorDayToNight: apart(floorAt(0.25), floorAt(0.75))    // the track and floor around the egg
+      };
+      R.setBackdropTime(null);
+      return out;
+    });
+    const detail = JSON.stringify(far);
+    check('the far kitchen looks different by day and by night', far.dayToNight > 8, detail);
+    check('one lap of its slow loop ends exactly where it began', far.wrap < 0.05, detail);
+    check('nothing pops on the way round (biggest step ' + far.biggestStep.toFixed(1) + ' of 255 levels)', far.biggestStep < 8, detail);
+    check('the track and floor around the egg stay just as bright at night', far.floorDayToNight < 4, detail);
+
+    const moved = await page.evaluate(() => {
+      const R = ER.debug.renderer, cv = document.getElementById('game'), c = cv.getContext('2d'), r = ER.debug.run();
+      const o = { costume: 'wizard', zoom: 0, sinceOver: 0, frozen: false };
+      R.fx.egg(true); R.fx.shell(1); R.fx.popup('+25');          // effects in the air
+      R.draw(r, 2000, o); R.draw(r, 2016, o);
+      o.frozen = true;                                            // paused
+      R.draw(r, 2032, o); const a = c.getImageData(0, 0, cv.width, cv.height).data;
+      R.draw(r, 7032, o); const b = c.getImageData(0, 0, cv.width, cv.height).data;
+      let n = 0; for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) n++;
+      return n;
+    });
+    check('while paused the whole picture is perfectly still, effects and far kitchen included', moved === 0, moved + ' values changed');
+
+    const stale = await page.evaluate(() => {
+      const R = ER.debug.renderer, cv = document.getElementById('game'), c = cv.getContext('2d'), r = ER.debug.run();
+      r.input('right'); for (let i = 0; i < 60; i++) r.step(); r.drain();
+      // Paint the canvas a colour the game never uses, then draw the fully zoomed ending over it.
+      c.save(); c.setTransform(1, 0, 0, 1, 0, 0); c.fillStyle = '#ff00ff'; c.fillRect(0, 0, cv.width, cv.height); c.restore();
+      R.draw(r, 9000, { costume: 'plain', zoom: 1, sinceOver: 2000, frozen: false });
+      const d = c.getImageData(0, 0, cv.width, cv.height).data;
+      let n = 0; for (let i = 0; i < d.length; i += 4) if (d[i] === 255 && d[i + 1] === 0 && d[i + 2] === 255) n++;
+      return n;
+    });
+    check('the ending zoom repaints the whole screen, with the egg in a side lane', stale === 0, stale + ' pixels left over');
+  }
+
   console.log('Speed of drawing');
   if (loaded) {
     const ms = await page.evaluate(() => {
@@ -744,6 +800,26 @@ function lookAt(id, mayScroll) {
       return (performance.now() - t0) / 120;
     });
     check('one frame draws in ' + ms.toFixed(2) + ' ms (a 60 fps frame has 16.7 ms)', ms < 8);
+
+    // Big, sharp screens were the slow ones. This browser draws without a
+    // graphics chip, so a real device is faster; the limit is one 60 fps frame.
+    const dev = await context.newCDPSession(page);
+    for (const [name, w, h] of [['a desktop screen at double sharpness', 1440, 810], ['an upright tablet at double sharpness', 820, 1180]]) {
+      await dev.send('Emulation.setDeviceMetricsOverride', { width: w, height: h, deviceScaleFactor: 2, mobile: false });
+      await page.waitForTimeout(150);
+      const big = await page.evaluate(() => {
+        const R = ER.debug.renderer; R.resize();
+        const r = ER.debug.run(), o = { costume: 'wizard', zoom: 0, sinceOver: 0, frozen: false }, cv = document.getElementById('game');
+        const t0 = performance.now();
+        for (let i = 0; i < 20; i++) R.draw(r, t0 + i * 16, o);    // first frames repaint the still parts
+        const t1 = performance.now();
+        for (let i = 0; i < 100; i++) R.draw(r, t1 + i * 16, o);
+        return { ms: (performance.now() - t1) / 100, pixels: cv.width * cv.height };
+      });
+      check('on ' + name + ' a frame draws in ' + big.ms.toFixed(2) + ' ms', big.ms < 16.7, JSON.stringify(big));
+      check('  and the canvas is kept to a size phones and tablets can fill quickly', big.pixels <= 2400000, big.pixels + ' pixels');
+    }
+    await dev.send('Emulation.clearDeviceMetricsOverride');
   }
 
   check('no errors in the browser console', errors.length === 0, errors.join(' | '));

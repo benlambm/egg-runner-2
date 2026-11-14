@@ -68,7 +68,7 @@ html, body {
   padding-top: calc(env(safe-area-inset-top, 0px) + 12px); padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 12px);
   padding-left: max(16px, env(safe-area-inset-left, 0px));
   padding-right: max(16px, env(safe-area-inset-right, 0px));
-  background: rgba(255, 246, 224, 0.72);
+  background: rgba(255, 246, 224, 0.5);    /* light, but lets the kitchen show around the card */
 }
 .screen.top { z-index: 20; background: rgba(255, 246, 224, 0.9); }
 

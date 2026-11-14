@@ -1189,13 +1189,10 @@
       if (firm) {
         c.drawImage(sp.img, left - sp.ox, 0, sp.w, sp.h);
       } else {
-        // Clutter is background: wash it very slightly toward the floor's
-        // colour so the hazards on the track stand out against it.
-        // ("source-atop" paints only where the picture already is.)
-        var pale = makeCanvas(sp.img.width, sp.img.height), pc = pale.getContext('2d');
-        pc.drawImage(sp.img, 0, 0);
-        pc.globalCompositeOperation = 'source-atop'; pc.fillStyle = 'rgba(250,238,214,0.13)'; pc.fillRect(0, 0, pale.width, pale.height);
-        c.drawImage(pale, left - sp.ox, 0, sp.w, sp.h);
+        // Clutter is background. js/art.js already washes each clutter picture
+        // toward the floor's colour (its `soft` flag), so it is stamped as it is:
+        // washing it again here made it look faded.
+        c.drawImage(sp.img, left - sp.ox, 0, sp.w, sp.h);
       }
       return { from: sp.img, img: cv, levels: [], ox: left, oy: sp.oy, w: cv.width / res, h: cv.height / res };
     }
@@ -1350,7 +1347,6 @@
         // The snap reaches DOG_BITE_LANES lanes, so the lunge must be SEEN to
         // cross them: with two, the dog leaps over its own lane until its
         // jaws are in the middle lane, then springs back.
-        if (phase === 'windup') x += 16 * f;                       // draws back first
         if (phase === 'snap') {
           var jawsAt = (1.5 - T.DOG_BITE_LANES) * LANE + 62;       // where the dog stands at full stretch
           var go = Math.sin(Math.min(1, f * 1.25) * Math.PI);
@@ -1454,7 +1450,9 @@
       if (!p.grounded) { vy = clamp(p.vy / T.JUMP_SPEED, -1, 1); sy = 1 + Math.abs(vy) * 0.1; sx = 1 - Math.abs(vy) * 0.07; }
       else { var since = S.t - landedAt; if (since < 130) { var sq = 1 - since / 130; sy = 1 - sq * 0.14; sx = 1 + sq * 0.12; } }
       var lean = clamp((p.lane * LANE - p.x) / LANE, -1, 1);
-      var tilt = clamp(lean * 0.48, -0.3, 0.3);
+      // The costume leans the egg itself on the `lean` hint (see costumes.js), so
+      // only a small tilt is added here; a big one on top looked like falling over.
+      var tilt = clamp(lean * 0.2, -0.14, 0.14);
       ctx.save();
       if (!S.over && S.t < p.blinkUntil) ctx.globalAlpha = Math.floor(S.t / 90) % 2 ? 0.25 : 0.85;
       ctx.translate(q.x, q.y); ctx.rotate(tilt); ctx.scale(q.s * sx, q.s * sy);

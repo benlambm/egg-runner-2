@@ -10,8 +10,6 @@
   'use strict';
 
   var KEY = 'egg-runner-2.save.v1';
-  // Keys left by the older flat game on the same web address.
-  var OLD_KEYS = ['er_hats', 'er_equipped', 'er_best'];
   // No run can get this far (it is days of running at top speed), so a
   // bigger saved best distance is damage, not a record.
   var MAX_BEST = 1e9;
@@ -122,6 +120,9 @@
 
     // Start Over: forget costumes, the costume worn and the best distance.
     // The sound switches are kept, since they are a setting, not progress.
+    // Only this game's own save is erased. The older flat game and the
+    // original Egg Runner live on the same web address and share the browser's
+    // storage, so their saved data (er_hats, er_best…) must be left alone.
     function startOver() {
       sync();
       var sound = data.sound, music = data.music;
@@ -130,7 +131,6 @@
       try {
         if (storage) {
           storage.removeItem(KEY);
-          OLD_KEYS.forEach(function (k) { storage.removeItem(k); });
         }
       } catch (e) { /* nothing to erase */ }
       save();

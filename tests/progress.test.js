@@ -106,12 +106,22 @@ test('Start Over erases costumes, the costume worn and the best distance', () =>
   assert.deepEqual(p.get().unlocked, []);
   assert.equal(p.get().wearing, 'plain');
   assert.equal(p.get().best, 0);
-  // …and it stays erased after reopening, including the old game's leftovers.
+  // …and it stays erased after reopening.
   const again = createProgress(storage, IDS, dice(11));
   assert.deepEqual(again.get().unlocked, []);
   assert.equal(again.get().wearing, 'plain');
   assert.equal(again.get().best, 0);
-  for (const k of ['er_hats', 'er_equipped', 'er_best']) assert.equal(storage.getItem(k), null);
+});
+
+test('Start Over leaves other games on the same web address alone', () => {
+  // The original Egg Runner is served from the same address and shares the
+  // browser's storage. Its saved hats and best distance are not ours to erase.
+  const others = { er_hats: '["none","crown"]', er_equipped: 'crown', er_best: '4000', 'some-other-game': 'keep me' };
+  const storage = fakeStorage(others);
+  const p = createProgress(storage, IDS, dice(11));
+  p.finishRun(5000);
+  p.startOver();
+  for (const [k, v] of Object.entries(others)) assert.equal(storage.getItem(k), v, k + ' was touched');
 });
 
 test('the game still works when storage is missing or broken', () => {
@@ -280,7 +290,7 @@ test('Start Over erases nothing but this game\'s own progress', () => {
   p.startOver();
   assert.equal(storage.getItem('another-game.save'), 'keep me');
   assert.equal(storage.getItem('egg-runner-2.other'), 'keep me too');
-  assert.equal(storage.getItem('er_best'), null, 'the older flat game\'s leftovers go');
+  assert.equal(storage.getItem('er_best'), '4000', 'saved data from the other Egg Runner games on this address is left alone');
   const again = createProgress(storage, IDS, dice(11)).get();
   assert.deepEqual(again.unlocked, []);
   assert.equal(again.sound, false, 'the sound switch is a setting, so it stays as it was');
