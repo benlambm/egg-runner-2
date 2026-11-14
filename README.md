@@ -1,64 +1,129 @@
-# 🥚 Egg Runner 2
+# Egg Runner 2
 
-**Don't crack under pressure!** Egg Runner 2 is an endless runner where you guide a brave little egg through an obstacle course — and now whole eggs along the track are treasure: collect them for score and shield protection that can save your run.
+You are a cartoon egg running endlessly through a kitchen. Get as far as you can before you crack.
 
-**Play now:** [benlambm.github.io/egg-runner-2](https://benlambm.github.io/egg-runner-2/) 🍳
+This branch is the next edition, rebuilt from scratch. The live game on `main` is the older flat version and is not touched by anything here. How the game plays is defined in [DESCRIPTION.md](DESCRIPTION.md); this file covers how the build is put together.
 
-Egg Runner 2 is the successor to [Egg Runner](https://github.com/benlambm/egg-runner).
+## Try it
 
-## ✨ What's new in 2.0
+The game is plain HTML, CSS and JavaScript. There is nothing to install and no build step.
 
-- **Whole eggs are collectibles, not obstacles.** Hard boiled eggs are now whole eggs (never halved) that spawn on the track in singles and small runs of 3 to 5, bobbing and glinting like coins in a runner.
-- **Egg counter.** The HUD always shows how many eggs you have collected (🥚 × N), and the game-over screen reports "Eggs collected: N".
-- **Shield protection bank.** Every collected egg banks one protection charge, up to a cap of 5, shown in the HUD as filled vs empty egg slots. On an obstacle collision, a banked egg cracks in your place, the obstacle is removed, and you get about 1.5 seconds of flickering invulnerability so one mistake cannot chain into more hits. With an empty bank, a collision cracks you and ends the run as before.
-- **Score bonus.** Each egg pickup adds 25 points, even at a full bank — pickups still count toward your collected total and score when the bank is full.
-- **Removed obstacle.** The old egg-shaped obstacle is gone entirely: it no longer spawns, is drawn, or can be hit. The other obstacles (toaster, blender, carton, knife, butter) remain the hazards.
+```
+python3 -m http.server 8080
+```
 
-## ✨ 2.0 facelift
+Then open `http://localhost:8080`. On a phone, use the computer's address on the same Wi-Fi.
 
-- **Digital-render look.** Shaded eggs with a specular shine and soft shadows that shrink as you jump, gradient-lit obstacles, a layered parallax kitchen (warm wall, soft cabinets, counter edge, shaded checker track), pickup sparkles, a shell burst when a banked egg cracks for you, and a soft glow pulse on the HUD when protection is gained or lost.
-- **Gentler difficulty (playtest fix).** The run starts a little slower, takes about twice as long to reach a modestly lower top speed, and obstacle spacing now grows with speed: at least one full jump of travel (times a safety factor) and at least a fixed reaction gap, so back-to-back obstacles stay clearable at any speed.
-- **Reliable re-jumping (playtest fix).** Jump buffering (a press up to 120 ms before landing fires on the landing frame), coyote time (a press up to 100 ms after leaving the ground still counts), and instant re-arm on the landing frame. No more eaten inputs between obstacles.
-- **The side dog 🐕 (playtester request).** Every so often, never in the first 20 seconds, paw prints and a bark warn you, then a dog runs in from one side and runs alongside for exactly 10 seconds, snapping at ground level on its side every couple of seconds after a visible wind-up. Dodge by jumping, or by standing on the far side. If it catches you, a banked egg is eaten instead and you get the usual invulnerability flicker; with an empty bank the run ends: "Eaten by the dog!" Obstacles never spawn during a snap, so both dodges always stay open.
+- **Touch:** swipe left or right to change lanes, swipe up to jump.
+- **Keyboard:** arrow keys (or A, D, W). Space also jumps. Enter starts. Escape or P pauses.
 
-Full requirements: [SPEC.md](SPEC.md).
+## Retuning
 
-## 🎮 How to Play (Mobile)
+Every tuning number is in [`js/tuning.js`](js/tuning.js), with a comment on each: speeds, jump, forgiveness windows, spacing, egg and golden-row rates, the dog's timing, the knives' rhythm and how often they appear.
 
-- **Swipe left / right** — dodge obstacles
-- **Swipe up** — jump over flat objects
-- **Run over whole eggs** — collect them for +25 score and shield protection
-- Survive as long as you can and unlock hats along the way 🎩🥚
+Change a number, reload, play. Then run the checks: several of them describe fairness limits (for example, obstacles are never closer than one jump) and will say so if a number breaks one.
 
-Keyboard: arrow keys dodge left/right and jump.
+## Checks
 
-## 📲 Install on Your Phone
+```
+npm test                  # the rules, in Node (under 10 seconds)
+npm run test:browser      # the real game in a headless browser (needs Playwright)
+```
 
-This is a full **Progressive Web App** — no app store needed.
+`npm test` has no dependencies. It covers every rule in DESCRIPTION.md, including:
 
-**iPhone / iPad:**
-1. Open the link in **Safari**
-2. Tap the **Share** icon (box with arrow)
-3. Tap **"Add to Home Screen"**
+- **Proof by play.** A simple automated player runs 40 full four-minute courses. With knives switched off it is never hit, which shows a clean escape always exists from obstacles and the dog. With knives on, its only hits are chops under sets that cover all three lanes.
+- **Fair spacing.** Rows never block all three lanes, are never closer than one jump or one reaction time, and get extra room when the way through needs two lane changes.
+- **The dog.** Never early, a one-second warning, exactly ten seconds alongside, a wind-up before every snap, and no obstacle or knife anywhere near a snap.
+- **Screen sizes.** On twelve screen shapes the egg, a full jump, all five spares and the dog are on screen, nothing is stretched, and things appear at the same distance ahead.
+- **Saving, Start Over, offline file list, and no network calls.**
 
-**Android:**
-1. Open the link in **Chrome**
-2. Tap the install banner, or Menu (⋮) → **"Add to Home Screen"**
+`npm run test:browser` plays the real page: keyboard, touch swipes, pause on switching away, resizing, the ending zoom and results, costume saving across reloads, Start Over with "Are you sure?", loading with no connection, and drawing speed.
 
-The egg icon lands right on your home screen next to your other apps. Launches fullscreen, works offline after first load. 🥚✨
+## How it is built
 
-## 🏗️ Zero Dependencies, Instant Ship
+| File | What it does |
+| --- | --- |
+| `js/tuning.js` | Every tuning number. |
+| `js/rules.js` | The rules: moving, obstacles, eggs and spares, the dog, knives, hits, score. No drawing or browser code, so the checks can play it. |
+| `js/view.js` | Fits the picture to any screen. The fake-3D formula lives here. |
+| `js/art.js` | Every picture, drawn in code: obstacles, eggs, knives, the dog, kitchen clutter. |
+| `js/costumes.js` | The egg and its costumes. Add one entry to add a costume. |
+| `js/render.js` | Draws a frame: wall, floor, track, then everything far to near. |
+| `js/audio.js` | Every sound and the tune, made in code. |
+| `js/progress.js` | What the device remembers. |
+| `js/main.js` | Game loop, controls, menus. |
+| `sw.js`, `manifest.json` | Offline play and home-screen install. |
+| `tests/`, `tools/` | The checks. Not part of the game. |
 
-This entire installable mobile app is **four files**: `index.html`, `manifest.json`, `sw.js`, and two icons. That's it. No React, no Webpack, no node_modules black hole, no build step. Pure vanilla HTML/CSS/JS.
+The 3D look is the old arcade trick. Each thing is a flat picture, drawn at `size = CAM_BACK / (CAM_BACK + distance ahead)` and placed nearer the horizon the farther away it is. Movement is still three lanes and a jump.
 
-Deployment? Push to GitHub, enable Pages, done. From `git push` to live mobile app in under 60 seconds. One branch, one click, zero config. 🥚🚀
+There are no asset files except the two app icons.
 
-The service worker caches everything for offline play (cache `egg-runner-2-v1`). The manifest makes it installable. The `<meta>` tags handle iOS quirks. Ship it and forget it.
+## Shipping
 
-## 📄 License
+- Work on a branch. Every push to `main` redeploys the live game.
+- Do not merge to `main` until Ben has played this build and says to ship it.
+- When any game file changes, bump `VERSION` in `sw.js`. That is what makes phones that already have the game fetch the new files.
 
-**CC BY-NC 4.0** — [Creative Commons Attribution-NonCommercial 4.0 International](https://creativecommons.org/licenses/by-nc/4.0/)
+## Choices made where the description is silent
 
-You are free to share and adapt this work **for non-commercial purposes only**, provided you give appropriate credit:
+Each is the simplest option that kept the game fair. Most are one number in `js/tuning.js`.
 
-> **Egg Runner** by [Ben Lamb](https://github.com/benlambm) — Original author must be credited in any reuse or derivative work.
+**Starting fresh**
+- Old hats and the old best distance are not carried over. Start Over also clears the old game's leftover data.
+- Start Over keeps the sound and music switches, since they are settings rather than progress.
+
+**Costumes**
+- There are sixteen: chef, cowboy, wizard, ninja, pirate, astronaut, superhero, king, clown, robot, dinosaur, bumblebee, viking, vampire, detective, mummy.
+- Once all sixteen are unlocked, a run unlocks nothing.
+- Ending a run from the pause screen gives no costume and does not count toward best distance.
+
+**Moving**
+- A lane change counts the instant you press. The slide is only drawn.
+- "Slightly early" is 140 ms before landing. "Slightly late" is 90 ms after a flat obstacle first touches you.
+- Coming down on the back half of a flat obstacle counts as clearing it.
+- One swipe is one move, and it fires as soon as the finger has travelled about 5% of the screen, not when it lifts.
+- A held key counts once.
+
+**Obstacles**
+- A row blocks one or two lanes, never three. Two-lane rows start rare (10%) and reach 45% at top speed.
+- Pace matches the live game: same start speed, top speed and ramp.
+- The first obstacle arrives after 3.2 seconds.
+- A last-moment lane switch is a close call if the obstacle would have reached you within 260 ms.
+
+**Eggs**
+- Eggs are grabbed by lane and position. Height does not matter, so a jump never misses one.
+- Rows are 3 to 5 eggs. Half of all rows end in a golden egg, which is the last egg of the row.
+- Eggs are never placed in a lane with a tall obstacle, or near knives.
+
+**The dog**
+- The first visit arrives between 25 and about 42 seconds in. After that there are 25 to 45 quiet seconds between visits.
+- The bite is a single instant, when the wind-up ends. Being in the air at that instant is enough.
+- The description says no new obstacles appear during a wind-up. Because things are now visible far ahead, this build does something stronger: the stretch of track that reaches you from just before each wind-up until 650 ms after the snap is laid out with no obstacles at all.
+- Knives never arrive during a dog visit.
+- On narrow screens the dog tucks in over the edge of the outer lane so it is always fully visible. This is looks only.
+
+**Chopping knives**
+- The first knives arrive from about 33 seconds in, or later if the dog is visiting. After that a set comes every 11 to 21 seconds.
+- The first two sets are a single knife. After that: one knife 35%, two 42%, all three lanes 23%.
+- A blade is low enough to hit about a quarter of the time. Each knife waits raised for at least 0.6 seconds after lifting, so a knife you see rising as you arrive is safe.
+- No obstacles sit within about a second before a set of knives, so you are free to pick a lane.
+- A knife that hits you is knocked away, like any obstacle.
+
+**Screen and view**
+- Tall screens look down on the track from a little higher. This shows more kitchen, not more track: things appear 2,600 units ahead on every screen.
+- Things you have passed fade out behind the egg so they never hide the spares.
+- The app can turn to any orientation.
+
+**Other**
+- Distance is shown in feet. Score is one point per inch travelled plus 25 per egg.
+- Sound effects and a small looping tune, each with its own switch.
+- Results titles are "Cracked!", "Chopped!" and "Eaten!". A tap or Enter skips the zoom after half a second.
+- After switching away the game stays paused until you press Keep Running.
+- Phones that support it buzz briefly on a hit.
+- The app icons are unchanged.
+
+## License
+
+CC BY-NC 4.0. See [LICENSE](LICENSE). Egg Runner is by [Ben Lamb](https://github.com/benlambm).
