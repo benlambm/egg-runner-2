@@ -18,6 +18,9 @@
  *
  * Environment:  SIZE=phone|small|landscape|tablet|desktop|ultrawide (default phone)
  *               DPR=1|2|3 (default 1)   SEED=number (default 7)
+ *               DAY=0..1 pins the far kitchen's slow loop at that point
+ *               (0 morning, 0.25 afternoon, 0.5 sunset, 0.75 night), if the
+ *               renderer offers setBackdropTime(); leave unset to let it run
  */
 'use strict';
 const http = require('node:http');
@@ -63,6 +66,9 @@ function serve() {
     page.on('console', m => { if (m.type() === 'error' && !/sw\.js|ServiceWorker/.test(m.text())) errors.push(m.text()); });
     await page.goto(url);
     await page.waitForFunction(() => window.ER && ER.debug);
+    if (process.env.DAY !== undefined) {
+      await page.evaluate(day => { const R = ER.debug.renderer; if (R.setBackdropTime) R.setBackdropTime(day); }, Number(process.env.DAY));
+    }
     await page.waitForTimeout(250);
     return page;
   }
