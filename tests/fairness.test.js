@@ -95,25 +95,73 @@ test('eggs are never placed inside a tall obstacle', () => {
   }
 });
 
-test('eggs come alone and in short rows, and some rows end in gold', () => {
-  const run = rules.createRun({ seed: 9, tuning: { MAX_SPARES: 99 } });
+// Every group of eggs a run lays out in `ms`: eggs in one lane, one spacing apart.
+function eggGroups(seed, ms) {
+  const run = rules.createRun({ seed, tuning: { MAX_SPARES: 99 } });
   const eggs = new Map();
-  for (let i = 0; i < 120000 / run.T.STEP_MS; i++) {
+  for (let i = 0; i < ms / run.T.STEP_MS; i++) {
     run.S.spares = 99;
     run.step(); run.drain();
     for (const o of run.S.things) if (o.type === 'egg' && !eggs.has(o.id)) eggs.set(o.id, { d: o.d, lane: o.lane, golden: o.golden, row: o.row });
   }
-  const all = [...eggs.values()];
-  const goldenRows = new Set(all.filter(e => e.row).map(e => e.row));
-  assert.ok(all.length > 100, 'eggs in two minutes: ' + all.length);
-  assert.ok(goldenRows.size >= 8, 'golden rows: ' + goldenRows.size);
-  for (const id of goldenRows) {
-    const row = all.filter(e => e.row === id).sort((a, b) => a.d - b.d);
-    assert.ok(row.length >= 3 && row.length <= 5);
-    assert.equal(row.filter(e => e.golden).length, 1);
-    assert.equal(row[row.length - 1].golden, true, 'the golden egg ends the row');
-    assert.equal(new Set(row.map(e => e.lane)).size, 1, 'a row stays in one lane');
+  const groups = [];
+  for (const e of [...eggs.values()].sort((a, b) => a.lane - b.lane || a.d - b.d)) {
+    const last = groups[groups.length - 1];
+    if (last && last.lane === e.lane && Math.abs(e.d - last.eggs[last.eggs.length - 1].d - TUNING.EGG_SPACING) < 1) last.eggs.push(e);
+    else groups.push({ lane: e.lane, eggs: [e] });
   }
+  return { groups, run };
+}
+
+test('eggs come alone, in short rows, and in longer chains', () => {
+  const { groups } = eggGroups(9, 180000);
+  const sizes = groups.map(g => g.eggs.length);
+  assert.ok(sizes.filter(n => n === 1).length > 10, 'single eggs');
+  assert.ok(sizes.filter(n => n >= TUNING.EGG_ROW_LENGTH[0] && n <= TUNING.EGG_ROW_LENGTH[1]).length > 10, 'short rows');
+  assert.ok(sizes.filter(n => n >= TUNING.GOLDEN_CHAIN_LENGTH[0]).length >= 3, 'longer chains');
+  assert.ok(Math.max(...sizes) <= TUNING.GOLDEN_CHAIN_LENGTH[1]);
+});
+
+test('a golden egg only ever comes at the end of a longer chain of whole eggs', () => {
+  let chains = 0;
+  for (let seed = 1; seed <= 30; seed++) {
+    const { groups } = eggGroups(seed, 180000);
+    for (const g of groups) {
+      const golden = g.eggs.filter(e => e.golden);
+      if (g.eggs.length < TUNING.GOLDEN_CHAIN_LENGTH[0]) {
+        assert.equal(golden.length, 0, 'seed ' + seed + ': a golden egg in a group of ' + g.eggs.length);
+        continue;
+      }
+      chains++;
+      assert.ok(g.eggs.length >= 6 && g.eggs.length <= TUNING.GOLDEN_CHAIN_LENGTH[1], 'chain of ' + g.eggs.length);
+      assert.equal(golden.length, 1, 'seed ' + seed + ': a chain has exactly one golden egg');
+      assert.equal(g.eggs[g.eggs.length - 1].golden, true, 'the golden egg ends the chain');
+      assert.equal(g.eggs.filter(e => !e.golden).length, g.eggs.length - 1, 'every other egg in it is a whole egg');
+      assert.equal(new Set(g.eggs.map(e => e.row)).size, 1, 'the whole chain is one row');
+    }
+  }
+  assert.ok(chains > 100, 'chains checked: ' + chains);
+});
+
+test('golden eggs are rare at the beginning and more common later', () => {
+  let early = 0, late = 0, first = Infinity;
+  const seeds = 40;
+  for (let seed = 1; seed <= seeds; seed++) {
+    const { groups, run } = eggGroups(seed, 240000);
+    const minute = rules.advance(run.T, 0, 60000), lateFrom = rules.advance(run.T, 0, 180000);
+    for (const g of groups) {
+      const gold = g.eggs.find(e => e.golden);
+      if (!gold) continue;
+      first = Math.min(first, g.eggs[0].d);
+      if (gold.d < minute) early++;
+      if (gold.d >= lateFrom && gold.d < rules.advance(run.T, 0, 240000)) late++;
+    }
+    assert.ok(first >= rules.advance(run.T, 0, TUNING.GOLDEN_FIRST_MS) - 1, 'seed ' + seed + ': no golden chain before the first-golden time');
+  }
+  const earlyPerMin = early / seeds, latePerMin = late / seeds;
+  assert.ok(earlyPerMin <= 2.5, 'golden eggs in the first minute: ' + earlyPerMin.toFixed(2));
+  assert.ok(earlyPerMin >= 0.4, 'but not absent: ' + earlyPerMin.toFixed(2));
+  assert.ok(latePerMin > earlyPerMin * 1.5, 'later ' + latePerMin.toFixed(2) + ' per minute against ' + earlyPerMin.toFixed(2) + ' early');
 });
 
 test('proof by play: with no knives, a simple player is never hit (obstacles + dog)', () => {

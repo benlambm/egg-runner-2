@@ -66,7 +66,8 @@ function bot(run) {
   if (mine && p.grounded && mine.d - S.dist <= touch(mine) + S.speed * 0.07) run.input('jump');
   // Jump the dog's snap.
   const dog = S.dog;
-  if (dog.state === 'alongside' && dog.phase === 'windup' && p.lane === dog.side &&
+  const lanesAway = (dog.side - p.lane) * dog.side;       // 0 = the dog's lane, 2 = the far lane
+  if (dog.state === 'alongside' && dog.phase === 'windup' && lanesAway < T.DOG_BITE_LANES &&
       p.grounded && dog.phaseUntil - S.t <= 250) run.input('jump');
 }
 

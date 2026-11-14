@@ -75,13 +75,32 @@ for (const side of [-1, 1]) {
     assert.equal(run.S.cause, 'dog');
   });
 
-  test('dog on the ' + name + ': safe in the middle lane', () => {
-    const { run } = dogRun(side);
-    runFor(run, 16000);
-    assert.equal(run.S.over, false);
+  test('dog on the ' + name + ': its snap reaches the middle lane too', () => {
+    const { run } = dogRun(side, { spares: 1 });
+    const events = runUntil(run, r => r.S.spares === 0);      // standing in the middle lane
+    assert.equal(run.S.player.lane, 0);
+    assert.equal(events.filter(e => e.type === 'dogSnap' && e.caught).length, 1);
+    assert.equal(events.filter(e => e.type === 'spareLost' && e.cause === 'dog').length, 1);
   });
 
-  test('dog on the ' + name + ': safe on the far side', () => {
+  test('dog on the ' + name + ': in the middle lane with no spares it eats you', () => {
+    const { run } = dogRun(side);
+    runFor(run, 12000);
+    assert.equal(run.S.over, true);
+    assert.equal(run.S.cause, 'dog');
+  });
+
+  test('dog on the ' + name + ': safe in the air in the middle lane', () => {
+    const { run } = dogRun(side);
+    const events = runFor(run, 16000, r => {
+      const dog = r.S.dog;
+      if (dog.phase === 'windup' && r.S.player.grounded && dog.phaseUntil - r.S.t < 200) r.input('jump');
+    });
+    assert.equal(run.S.over, false);
+    assert.equal(events.filter(e => e.type === 'dogSnap' && e.caught).length, 0);
+  });
+
+  test('dog on the ' + name + ': the far lane is the only safe place to stand', () => {
     const { run } = dogRun(side);
     run.input(dodge);
     runFor(run, 16000);
@@ -154,4 +173,18 @@ test('no obstacle ever arrives around a snap, so there is always a way out', () 
     }
   }
   assert.ok(snaps > 300, 'snaps checked: ' + snaps);
+});
+
+test('the snap reaches exactly two lanes: the dog\'s lane and the middle', () => {
+  assert.equal(TUNING.DOG_BITE_LANES, 2);
+  for (const side of [-1, 1]) {
+    for (const lane of [-1, 0, 1]) {
+      const run = emptyRun({ spares: 1 });
+      run.place.dog(1500, side);
+      if (lane !== 0) run.input(lane < 0 ? 'left' : 'right');
+      runUntil(run, r => r.S.dog.phase === 'snap');
+      const bitten = run.S.spares === 0;
+      assert.equal(bitten, lane !== -side, 'dog on ' + side + ', egg in lane ' + lane);
+    }
+  }
 });

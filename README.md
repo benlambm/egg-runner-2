@@ -94,11 +94,13 @@ Each is the simplest option that kept the game fair. Most are one number in `js/
 
 **Eggs**
 - Eggs are grabbed by lane and position. Height does not matter, so a jump never misses one.
-- Rows are 3 to 5 eggs. Half of all rows end in a golden egg, which is the last egg of the row.
+- Short rows are 3 to 5 whole eggs and never golden. A golden egg comes only as the last egg of a longer chain of 6 to 8.
+- No golden chain arrives in the first 15 seconds. After that they come about 1.5 times a minute early on, rising to about 6 a minute at top speed.
 - Eggs are never placed in a lane with a tall obstacle, or near knives.
 
 **The dog**
 - The first visit arrives between 25 and about 42 seconds in. After that there are 25 to 45 quiet seconds between visits.
+- A snap reaches two lanes, the dog's own and the middle, and both glow red on the floor during the wind-up. Only the far lane or a jump is safe. `DOG_BITE_LANES` in the tuning file sets the reach.
 - The bite is a single instant, when the wind-up ends. Being in the air at that instant is enough.
 - The description says no new obstacles appear during a wind-up. Because things are now visible far ahead, this build does something stronger: the stretch of track that reaches you from just before each wind-up until 650 ms after the snap is laid out with no obstacles at all.
 - Knives never arrive during a dog visit.

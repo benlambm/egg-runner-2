@@ -84,9 +84,15 @@
                                // to grab an egg. Height does not matter.
     EGG_SPACING: 86,           // distance between eggs in a row
     EGG_GROUP_GAP_MS: [900, 2100],  // travel time between groups of eggs
-    EGG_ROW_CHANCE: 0.62,      // share of groups that are a row (else one egg)
-    EGG_ROW_LENGTH: [3, 5],    // eggs in a row, counting the golden one
-    GOLDEN_ROW_CHANCE: 0.5,    // share of rows that end in a golden egg
+    EGG_ROW_CHANCE: 0.55,      // share of ordinary groups that are a short row
+                               // (the rest are a single egg)
+    EGG_ROW_LENGTH: [3, 5],    // eggs in a short row. Short rows are never golden.
+    // Golden eggs only ever come at the end of a longer chain of whole eggs.
+    GOLDEN_CHAIN_LENGTH: [6, 8],      // eggs in a chain, counting the golden one
+    GOLDEN_FIRST_MS: 15000,           // no golden chain arrives before this
+    GOLDEN_CHAIN_CHANCE_START: 0.04,  // share of egg groups that are a golden
+                                      // chain early in a run…
+    GOLDEN_CHAIN_CHANCE_TOP: 0.15,    // …rising to this at top speed
     EGG_CLEAR_BEFORE_MS: 300,  // no tall obstacle in an egg row's lane this long
                                // before its first egg…
     EGG_CLEAR_AFTER: 90,       // …or this far (units) after its last
@@ -104,6 +110,10 @@
     DOG_WINDUP_MS: 420,        // visible wind-up before every snap
     DOG_SNAP_MS: 160,          // how long the jaws stay shut (looks only: the
                                // bite itself is one instant, when wind-up ends)
+    DOG_BITE_LANES: 2,         // how many lanes a snap reaches, counted from the
+                               // dog's side: 2 = its own lane and the middle
+                               // lane, so only the far lane (or a jump) is safe.
+                               // 1 = its own lane only.
     DOG_IDLE_MS: [1100, 1700], // pause between snaps (so a snap lands roughly
                                // every 1.7 to 2.3 seconds)
     // The track is kept clear of obstacles around every snap, so there is

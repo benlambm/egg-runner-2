@@ -51,9 +51,9 @@ A chop is a hit like any other: it costs one spare, or cracks you if you have no
 
 ## Spare eggs
 
-Whole eggs along the track are treasure, never hazards. They appear alone or in short rows, and you can grab them on the ground or in midair. Each one scores 25 points, but whole eggs alone do not protect you.
+Whole eggs along the track are treasure, never hazards. They appear alone, in short rows, and now and then in a longer chain, and you can grab them on the ground or in midair. Each one scores 25 points, but whole eggs alone do not protect you.
 
-Protection comes only from golden eggs. Some rows of whole eggs end with a golden egg. Collect every egg in the row without missing one, then grab the golden egg, and you earn one spare egg on top of its 25 points. Miss any egg in the row and the golden egg turns into an ordinary whole egg before you reach it.
+Protection comes only from golden eggs. A golden egg only ever comes at the end of a longer chain of whole eggs, never on its own or after a short row. Golden eggs are rare early in a run and become more common the farther you go. Collect every egg in the chain without missing one, then grab the golden egg, and you earn one spare egg on top of its 25 points. Miss any egg in the chain and the golden egg turns into an ordinary whole egg before you reach it.
 
 You can carry up to five spares. A golden egg earned while you already carry five still scores.
 
@@ -65,9 +65,9 @@ Any hit costs one spare egg. The last spare in your line cracks in your place, a
 
 ## The dog
 
-Every so often, though never early in a run, paw prints and a bark warn that a dog is coming. It runs alongside you on one side for ten seconds, snapping every couple of seconds. Each snap has a visible wind-up first.
+Every so often, though never early in a run, paw prints and a bark warn that a dog is coming. It runs alongside you on one side for ten seconds, snapping every couple of seconds. Each snap has a visible wind-up first, and reaches across two lanes: the lane on the dog's side and the middle lane.
 
-You are safe if you are in the air when it snaps, or if you are in the middle lane or on the far side. If it catches you, it eats the last spare in your line, or eats you if you have none. No new obstacles appear while it is winding up, so there is always a way out.
+You are safe if you are in the air when it snaps, or if you are in the far lane, the one on the other side from the dog. If it catches you, it eats the last spare in your line, or eats you if you have none. No new obstacles appear while it is winding up, so there is always a way out.
 
 ## Pace
 

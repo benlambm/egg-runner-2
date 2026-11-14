@@ -134,6 +134,7 @@
       }
     };
     S.gen.F = advance(T, 0, T.FIRST_OBSTACLE_MS) - speedAt(T, 0) * minGapMs(T) / 1000;
+    S.gen.goldenFromD = advance(T, 0, T.GOLDEN_FIRST_MS);   // golden chains start here
     S.gen.nextDogD = advance(T, 0, between(S.rngCourse, T.DOG_FIRST_MS));
     S.gen.nextKnifeD = advance(T, 0, between(S.rngCourse, T.KNIFE_FIRST_MS));
 
@@ -291,19 +292,15 @@
       return made;
     }
 
-    // Eggs: one alone, or a short row in one lane, sometimes ending in gold.
-    function placeEggs(g) {
-      var h = S.rngCourse, d0 = g.eggD, v = speedAt(T, d0);
-      var isRow = rnd(h) < T.EGG_ROW_CHANCE;
-      var n = isRow ? T.EGG_ROW_LENGTH[0] + Math.floor(rnd(h) * (T.EGG_ROW_LENGTH[1] - T.EGG_ROW_LENGTH[0] + 1)) : 1;
-      var golden = isRow && rnd(h) < T.GOLDEN_ROW_CHANCE;
-      var d1 = d0 + (n - 1) * T.EGG_SPACING;
-      var before = v * T.EGG_CLEAR_BEFORE_MS / 1000;
-      var gateNear = false, i;
+    // Eggs: one alone, a short row, or now and then a longer chain that ends
+    // in a golden egg. Golden eggs never appear any other way, and chains are
+    // rare early in a run.
+    function lanesFreeForEggs(d0, d1) {
+      var before = speedAt(T, d0) * T.EGG_CLEAR_BEFORE_MS / 1000, i;
       for (i = 0; i < S.gates.length; i++) {
-        if (S.gates[i].d > d0 - 260 && S.gates[i].d < d1 + 260) gateNear = true;
+        if (S.gates[i].d > d0 - 260 && S.gates[i].d < d1 + 260) return [];   // keep clear of knives
       }
-      var lanes = gateNear ? [] : LANES.filter(function (L) {
+      return LANES.filter(function (L) {
         for (var j = 0; j < S.things.length; j++) {
           var o = S.things[j];
           if (o.lane !== L) continue;
@@ -312,17 +309,30 @@
         }
         return true;
       });
-      if (lanes.length) {
-        var lane = lanes[Math.floor(rnd(h) * lanes.length)];
-        addEggs(lane, d0, n, golden);
+    }
+    function whole(h, range) { return range[0] + Math.floor(rnd(h) * (range[1] - range[0] + 1)); }
+    function placeEggs(g) {
+      var h = S.rngCourse, d0 = g.eggD, v = speedAt(T, d0), p = difficulty(T, d0);
+      var chainChance = d0 >= g.goldenFromD ? lerp(T.GOLDEN_CHAIN_CHANCE_START, T.GOLDEN_CHAIN_CHANCE_TOP, p) : 0;
+      var golden = rnd(h) < chainChance;
+      var n = golden ? whole(h, T.GOLDEN_CHAIN_LENGTH) : rnd(h) < T.EGG_ROW_CHANCE ? whole(h, T.EGG_ROW_LENGTH) : 1;
+      var d1 = d0 + (n - 1) * T.EGG_SPACING;
+      var lanes = lanesFreeForEggs(d0, d1);
+      if (!lanes.length && golden) {
+        // No lane is clear for a whole chain here: lay a short plain row instead.
+        golden = false;
+        n = whole(h, T.EGG_ROW_LENGTH);
+        d1 = d0 + (n - 1) * T.EGG_SPACING;
+        lanes = lanesFreeForEggs(d0, d1);
       }
+      if (lanes.length) addEggs(lanes[Math.floor(rnd(h) * lanes.length)], d0, n, golden);
       g.eggD = d1 + v * between(h, T.EGG_GROUP_GAP_MS) / 1000;
     }
 
     function generate() {
       var g = S.gen;
       if (!g.on) return;
-      var horizon = S.dist + T.SEE_AHEAD + 700;
+      var horizon = S.dist + T.SEE_AHEAD + 900;
       var guard = 0;
       if (!g.eggsOnly) {
         while (g.F < horizon && guard++ < 200) {
@@ -344,7 +354,8 @@
       }
       // Eggs follow a little behind, so they know which obstacles are near.
       guard = 0;
-      while (g.eggD + T.EGG_ROW_LENGTH[1] * T.EGG_SPACING < g.F - 100 && guard++ < 200) placeEggs(g);
+      var longest = Math.max(T.EGG_ROW_LENGTH[1], T.GOLDEN_CHAIN_LENGTH[1]) * T.EGG_SPACING;
+      while (g.eggD + longest < g.F - 100 && guard++ < 200) placeEggs(g);
       // Forget zones the egg has passed.
       while (g.zones.length && g.zones[0].to < S.dist - 200) g.zones.shift();
     }
@@ -487,8 +498,10 @@
           }
         } else if (dog.phase === 'windup') {
           if (S.t >= dog.phaseUntil) {
-            // The bite. Safe in the air, in the middle, or on the far side.
-            var caught = p.grounded && p.lane === dog.side && S.t >= p.blinkUntil;
+            // The bite reaches DOG_BITE_LANES lanes, counted from the dog's side
+            // (two: its own lane and the middle). Safe in the air or beyond its reach.
+            var lanesAway = (dog.side - p.lane) * dog.side;   // 0 = the dog's lane, 1 = middle, 2 = far lane
+            var caught = p.grounded && lanesAway < T.DOG_BITE_LANES && S.t >= p.blinkUntil;
             dog.phase = 'snap'; dog.phaseUntil = S.t + T.DOG_SNAP_MS;
             emit('dogSnap', { side: dog.side, caught: caught });
             if (caught) hit('dog', null);

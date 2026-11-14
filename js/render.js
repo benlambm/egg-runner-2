@@ -234,6 +234,7 @@
       }
       ctx.drawImage(backdrop, 0, 0, L.w, backdrop.height / dpr);
       drawFloor(dist);
+      drawBiteZone(S, clock);
 
       // Gather everything, then draw far to near.
       var list = [];
@@ -387,7 +388,15 @@
         x += tin * 700; z -= tin * 260;
         var len = phase === 'windup' ? T.DOG_WINDUP_MS : T.DOG_SNAP_MS;
         f = phase === 'idle' ? 0 : clamp(1 - (dog.phaseUntil - S.t) / len, 0, 1);
-        if (phase === 'snap') { x -= 46 * Math.sin(f * Math.PI); z -= 70 * Math.sin(f * Math.PI); }
+        // The snap reaches DOG_BITE_LANES lanes, so the lunge must be SEEN to
+        // cross them: with two, the dog leaps over its own lane until its
+        // jaws are in the middle lane, then springs back.
+        if (phase === 'windup') x += 16 * f;                       // draws back first
+        if (phase === 'snap') {
+          var jawsAt = (1.5 - T.DOG_BITE_LANES) * T.LANE_WIDTH + 62;   // where the dog stands at full stretch
+          var go = Math.sin(Math.min(1, f * 1.25) * Math.PI);
+          x += (Math.min(x, jawsAt + 62) - x) * go; z -= 100 * go;
+        }
       } else if (dog.state === 'leaving') {
         var out = ease(clamp((S.t - dog.leftAt) / 900, 0, 1));
         x += out * 800; z += out * 500; phase = 'idle';
@@ -399,6 +408,23 @@
       ctx.save(); ctx.translate(q.x, q.y); ctx.scale(q.s * side, q.s);
       A.drawDog(ctx, { t: clock, phase: phase, f: f, happy: ate });
       ctx.restore();
+    }
+
+    // While the dog winds up, the lanes its snap will reach glow red on the
+    // floor around the egg, so it is clear which lanes are about to be bitten
+    // (two of them: the dog's lane and the middle). This is a warning the
+    // player relies on: keep it obvious.
+    function drawBiteZone(S, clock) {
+      var dog = S.dog;
+      if (dog.state !== 'alongside' || dog.phase === 'idle' || S.over) return;
+      var f = dog.phase === 'windup' ? clamp(1 - (dog.phaseUntil - S.t) / T.DOG_WINDUP_MS, 0, 1) : 1;
+      var LW = T.LANE_WIDTH, outer = dog.side * LW * 1.5, inner = outer - dog.side * LW * T.DOG_BITE_LANES;
+      var a = proj(Math.min(outer, inner), 0, 250), b = proj(Math.max(outer, inner), 0, 250);
+      var c2 = proj(Math.max(outer, inner), 0, -90), d = proj(Math.min(outer, inner), 0, -90);
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.lineTo(c2.x, c2.y); ctx.lineTo(d.x, d.y); ctx.closePath();
+      var pulse = dog.phase === 'snap' ? 0.5 : 0.14 + 0.26 * f + Math.sin(clock * 0.03) * 0.05;
+      ctx.fillStyle = 'rgba(229,72,77,' + pulse.toFixed(3) + ')'; ctx.fill();
+      ctx.strokeStyle = 'rgba(179,32,47,' + (0.35 + 0.4 * f).toFixed(3) + ')'; ctx.lineWidth = 3 * L.sp; ctx.stroke();
     }
 
     function drawPawWarning(S, clock) {
