@@ -11,6 +11,7 @@
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <title>Egg Runner 2</title>
+<!-- Egg Runner 2.0 (facelift) -->
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{background:#0f172a;display:flex;justify-content:center;align-items:center;height:100vh;overflow:hidden;font-family:'Segoe UI',system-ui,sans-serif}
@@ -47,6 +48,7 @@ kbd{display:inline-flex;align-items:center;justify-content:center;width:32px;hei
 .hud .hud-eggs{display:block;font-size:16px;margin-top:2px}
 .hud .hud-shield{display:block;font-size:13px;letter-spacing:2px;margin-top:2px}
 .hud .hud-score{display:block;font-size:13px;color:#64748b;margin-top:2px}
+.hud.pulse{box-shadow:0 0 0 4px rgba(251,191,36,0.55),0 2px 8px rgba(0,0,0,0.05);transition:box-shadow 0.15s}
 .hidden{display:none!important}
 
 </style>
@@ -78,6 +80,10 @@ kbd{display:inline-flex;align-items:center;justify-content:center;width:32px;hei
           <span style="font-size:20px">🥚</span>
           <span class="ctrl-label">Collect whole eggs: +25 score and shield protection (bank up to 5)</span>
         </div>
+        <div class="ctrl-row">
+          <span style="font-size:20px">🐕</span>
+          <span class="ctrl-label">Watch for the dog: jump or move to the far side when it snaps</span>
+        </div>
       </div>
       <button class="btn" id="startBtn">START RUNNING</button>
     </div>
@@ -86,8 +92,8 @@ kbd{display:inline-flex;align-items:center;justify-content:center;width:32px;hei
   <!-- GAME OVER SCREEN -->
   <div class="overlay dimmer hidden" id="overScreen">
     <div class="card">
-      <h2>CRACKED!</h2>
-      <p class="sub">You made an omelette.</p>
+      <h2 id="overTitle">CRACKED!</h2>
+      <p class="sub" id="overSub">You made an omelette.</p>
       <div class="score-row">
         <div><div class="score-label">Distance</div><div class="score-val" id="finalDist"></div></div>
         <div><div class="score-label">Best</div><div class="score-val" id="bestDist"></div></div>
@@ -125,8 +131,36 @@ const W = 400, H = 800;
 
 const LANE_W = 120;
 const GRAVITY = 0.8, JUMP_STR = 14;
-const INIT_SPEED = 6, MAX_SPEED = 18;
 const EGG_Y = 650;
+
+// ── TUNING (facelift pass, from real playtest feedback, Nov 2026) ──
+// Difficulty ramp: start a touch slower, take about twice the distance to
+// reach a modestly lower top speed, so the game eases in instead of spiking.
+const INIT_SPEED = 5.5;          // was 6 in the 2.0 launch build
+const MAX_SPEED = 15;            // was 18
+const SPEED_RAMP_DIST = 10000;   // dist divisor for the ramp; was 5000 (twice as fast)
+// Responsive jumping: presses just before landing or just after leaving the
+// ground still count, and the jump re-arms on the landing frame itself.
+const JUMP_BUFFER_MS = 120;      // a press this long before landing fires on landing
+const COYOTE_MS = 100;           // a press this long after leaving the ground still jumps
+const JUMP_AIRTIME_MS = (2 * JUMP_STR / GRAVITY) * (1000 / 60); // full rise+fall, ~583 ms
+// Spacing: the gap between obstacles scales with speed. It is at least one
+// full jump cycle of travel times the safety factor, and at least a fixed
+// reaction-time gap, so small hops between obstacles are always clearable.
+const SPAWN_SAFETY = 1.15;
+const REACTION_GAP_MS = 620;
+// Side dog: occasional 10-second hazard (see SPEC.md).
+const DOG_FIRST_MS = 20000;      // never appears in the first 20 s of a run
+const DOG_MIN_INTERVAL_MS = 25000; // gap between dog visits, low end
+const DOG_MAX_INTERVAL_MS = 45000; // gap between dog visits, high end
+const DOG_WARN_MS = 1000;        // paw-print and bark warning before it arrives
+const DOG_DURATION_MS = 10000;   // it runs alongside for exactly 10 s
+const DOG_WINDUP_MS = 400;       // visible wind-up before each snap
+const DOG_SNAP_MS = 150;         // the snap itself
+const DOG_SNAP_MIN_MS = 1100;    // idle time before a wind-up; with wind-up and
+const DOG_SNAP_MAX_MS = 1700;    // snap, snaps land roughly every 1.6 to 2.2 s
+// Particles (facelift juice), capped so mobile frame rates stay smooth.
+const MAX_PARTICLES = 90;
 const EGG_BANK_CAP = 5;
 const EGG_SCORE_BONUS = 25;
 const SHIELD_INVULN_MS = 1500;
@@ -205,6 +239,17 @@ function sfx(type) {
     const g = makeGain(0.1, 0.2);
     const o = tone(700, 'sine', 0, 0.2, g);
     o.frequency.exponentialRampToValueAtTime(1200, t + 0.15);
+  } else if (type === 'bark') {
+    // Two short woofs, in the game's tone style.
+    [0, 0.22].forEach(off => {
+      const g = ac.createGain(); g.connect(ac.destination);
+      g.gain.setValueAtTime(0.14, t + off);
+      g.gain.exponentialRampToValueAtTime(0.001, t + off + 0.16);
+      const o = ac.createOscillator(); o.type = 'square';
+      o.frequency.setValueAtTime(220, t + off);
+      o.frequency.exponentialRampToValueAtTime(110, t + off + 0.12);
+      o.connect(g); o.start(t + off); o.stop(t + off + 0.16);
+    });
   } else if (type === 'start') {
     const g = makeGain(0.12, 0.1);
     const o = tone(200, 'sine', 0, 0.1, g);
@@ -226,10 +271,13 @@ let lastTime = 0;
 function initState() {
   s = {
     dist: 0, speed: INIT_SPEED, time: 0, frames: 0, score: 0,
-    egg: { lane: 0, x: 0, z: 0, vz: 0, jumping: false, cracked: false, sweat: 0, sweatCooldown: 0 },
+    egg: { lane: 0, x: 0, z: 0, vz: 0, jumping: false, cracked: false, sweat: 0, sweatCooldown: 0, bufferedJumpAt: -1, lastGroundedAt: 0 },
     obs: [], nextSpawn: 100, bgOff: 0, crackTime: 0,
     eggs: [], nextEggSpawn: 120, eggsCollected: 0, eggBank: 0,
-    invulnTime: 0, shieldFxTime: 0, shieldFxX: 0, shieldFxY: EGG_Y
+    invulnTime: 0, shieldFxTime: 0, shieldFxX: 0, shieldFxY: EGG_Y,
+    gameOverReason: 'cracked', particles: [],
+    dog: { active: false, phase: 'idle', side: 1, nextSide: Math.random() < 0.5 ? -1 : 1, x: 0, remain: 0, snapTimer: 0, windup: 0, snap: 0, warnPlayed: false },
+    nextDogAt: DOG_FIRST_MS + DOG_MIN_INTERVAL_MS + Math.random() * (DOG_MAX_INTERVAL_MS - DOG_MIN_INTERVAL_MS)
   };
 }
 initState();
@@ -253,6 +301,15 @@ const $hudShield = document.getElementById('hudShield');
 const $hudScore = document.getElementById('hudScore');
 const $finalEggs = document.getElementById('finalEggs');
 const $finalScore = document.getElementById('finalScore');
+const $overTitle = document.getElementById('overTitle');
+const $overSub = document.getElementById('overSub');
+
+function pulseHud() {
+  if (!$hud) return;
+  $hud.classList.add('pulse');
+  clearTimeout(pulseHud._t);
+  pulseHud._t = setTimeout(() => $hud.classList.remove('pulse'), 240);
+}
 
 function updateEggHud() {
   if ($hudEggs) $hudEggs.textContent = '🥚 × ' + s.eggsCollected;
@@ -313,6 +370,13 @@ function buildOverHatUI() {
 
 function showGameOver() {
   $hud.classList.add('hidden'); $over.classList.remove('hidden');
+  if (s.gameOverReason === 'dog') {
+    $overTitle.textContent = 'EATEN!';
+    $overSub.textContent = 'Eaten by the dog! It got you fair and square.';
+  } else {
+    $overTitle.textContent = 'CRACKED!';
+    $overSub.textContent = 'You made an omelette.';
+  }
   // Score
   $finalDist.textContent = fmtDist(s.dist);
   if (s.dist > bestDist) { bestDist = s.dist; localStorage.setItem('er_best', bestDist); }
@@ -344,7 +408,7 @@ document.addEventListener('keydown', e => {
   if (gs !== 'playing') return;
   if (e.key === 'ArrowLeft') { s.egg.lane = Math.max(-1, s.egg.lane - 1); sfx('dodge'); }
   else if (e.key === 'ArrowRight') { s.egg.lane = Math.min(1, s.egg.lane + 1); sfx('dodge'); }
-  else if (e.key === 'ArrowUp' && !s.egg.jumping) { s.egg.jumping = true; s.egg.vz = JUMP_STR; sfx('jump'); }
+  else if (e.key === 'ArrowUp') { requestJump(); }
   e.preventDefault();
 });
 
@@ -369,7 +433,7 @@ canvas.addEventListener('touchend', e => {
 
   if (absDy > absDx && dy < -THRESH) {
     // Swipe up = jump
-    if (!s.egg.jumping) { s.egg.jumping = true; s.egg.vz = JUMP_STR; sfx('jump'); }
+    requestJump();
   } else if (absDx > absDy && absDx > THRESH) {
     // Swipe left/right = dodge
     if (dx < 0) s.egg.lane = Math.max(-1, s.egg.lane - 1);
@@ -378,6 +442,23 @@ canvas.addEventListener('touchend', e => {
   }
   e.preventDefault();
 }, { passive: false });
+
+// ── JUMP HELPERS (buffering + coyote time) ──────────────
+function doJump() {
+  s.egg.jumping = true;
+  s.egg.vz = JUMP_STR;
+  s.egg.bufferedJumpAt = -1;
+  sfx('jump');
+}
+
+function requestJump() {
+  if (gs !== 'playing') return;
+  if (!s.egg.jumping) { doJump(); return; }
+  // Airborne, but only just left the ground: coyote time, jump anyway.
+  if (s.time - s.egg.lastGroundedAt <= COYOTE_MS) { doJump(); return; }
+  // Otherwise remember the press; it fires on the landing frame.
+  s.egg.bufferedJumpAt = s.time;
+}
 
 // ── DRAW HAT ────────────────────────────────────────────
 function drawHat(c, hat, cracked, preview) {
@@ -447,6 +528,8 @@ function collectEgg(egg, index) {
   if (s.eggBank < EGG_BANK_CAP) s.eggBank++;
   s.score += EGG_SCORE_BONUS;
   updateEggHud();
+  pulseHud();
+  spawnSparkles(s.egg.x, EGG_Y - s.egg.z, 10, '#fbbf24');
   sfx('pickup');
 }
 
@@ -458,7 +541,196 @@ function consumeShield(obstacleIndex) {
   s.shieldFxY = EGG_Y - s.egg.z;
   s.obs.splice(obstacleIndex, 1);
   updateEggHud();
+  pulseHud();
+  spawnShellBurst(s.shieldFxX, s.shieldFxY);
   sfx('shieldcrack');
+}
+
+// ── PARTICLES (facelift juice) ──────────────────────────
+function spawnSparkles(x, y, n, color) {
+  for (let i = 0; i < n; i++) {
+    if (s.particles.length >= MAX_PARTICLES) break;
+    const a = Math.random() * Math.PI * 2, sp = 0.6 + Math.random() * 1.8;
+    s.particles.push({ kind: 'spark', x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 0.6, life: 420, max: 420, color });
+  }
+}
+
+function spawnShellBurst(x, y) {
+  for (let i = 0; i < 12; i++) {
+    if (s.particles.length >= MAX_PARTICLES) break;
+    const a = (i / 12) * Math.PI * 2 + Math.random() * 0.4, sp = 1 + Math.random() * 2.2;
+    s.particles.push({ kind: 'shell', x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 1, life: 500, max: 500, color: '#fffbeb' });
+  }
+}
+
+function updateParticles(dt) {
+  const step = dt / 16.7;
+  for (let i = s.particles.length - 1; i >= 0; i--) {
+    const p = s.particles[i];
+    p.life -= dt;
+    if (p.life <= 0) { s.particles.splice(i, 1); continue; }
+    p.x += p.vx * step; p.y += p.vy * step; p.vy += 0.05 * step;
+  }
+}
+
+function drawParticles() {
+  s.particles.forEach(p => {
+    const a = Math.max(0, p.life / p.max);
+    ctx.save(); ctx.globalAlpha = a; ctx.translate(p.x, p.y);
+    if (p.kind === 'shell') {
+      ctx.fillStyle = '#fffbeb'; ctx.strokeStyle = '#92400e'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(-6, 0); ctx.lineTo(0, -5); ctx.lineTo(6, 0); ctx.lineTo(0, 5); ctx.closePath(); ctx.fill(); ctx.stroke();
+    } else {
+      ctx.fillStyle = p.color;
+      ctx.beginPath(); ctx.arc(0, 0, 3, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
+  });
+}
+
+// ── SIDE DOG ────────────────────────────────────────────
+function startDogEvent() {
+  const d = s.dog;
+  d.active = true; d.phase = 'enter';
+  d.side = d.nextSide;
+  d.x = d.side * (W / 2 + 110);
+  d.remain = DOG_DURATION_MS;
+  d.snapTimer = 1300; d.windup = 0; d.snap = 0;
+}
+
+function dogCaught() {
+  if (s.invulnTime > 0) return; // shield flicker covers dog snaps too
+  if (s.eggBank > 0) {
+    // The dog gets a banked egg instead of the runner.
+    s.eggBank--;
+    s.invulnTime = SHIELD_INVULN_MS;
+    s.shieldFxTime = 450;
+    s.shieldFxX = s.egg.x;
+    s.shieldFxY = EGG_Y - s.egg.z;
+    updateEggHud();
+    pulseHud();
+    spawnShellBurst(s.shieldFxX, s.shieldFxY);
+    sfx('shieldcrack');
+  } else {
+    s.gameOverReason = 'dog';
+    s.egg.cracked = true; gs = 'cracking'; s.crackTime = 0; sfx('crack');
+  }
+}
+
+function updateDog(dt) {
+  const d = s.dog;
+  if (!d.active) {
+    if (!d.warnPlayed && s.nextDogAt - s.time <= DOG_WARN_MS && s.nextDogAt - s.time > 0) {
+      d.warnPlayed = true; sfx('bark');
+    }
+    if (s.time >= s.nextDogAt) startDogEvent();
+    return;
+  }
+  const targetX = d.side * (LANE_W + 62);
+  if (d.phase === 'enter') {
+    d.x += (targetX - d.x) * 0.12;
+    if (Math.abs(d.x - targetX) < 6) { d.phase = 'run'; d.x = targetX; }
+    return;
+  }
+  if (d.phase === 'leave') {
+    d.x += d.side * 7;
+    if (Math.abs(d.x) > W / 2 + 130) {
+      d.active = false; d.phase = 'idle'; d.warnPlayed = false;
+      d.nextSide = Math.random() < 0.5 ? -1 : 1;
+      s.nextDogAt = s.time + DOG_MIN_INTERVAL_MS + Math.random() * (DOG_MAX_INTERVAL_MS - DOG_MIN_INTERVAL_MS);
+    }
+    return;
+  }
+  // phase 'run': exactly DOG_DURATION_MS alongside the egg.
+  d.remain -= dt;
+  if (d.remain <= 0) { d.phase = 'leave'; return; }
+  if (d.snap > 0) {
+    d.snap -= dt;
+  } else if (d.windup > 0) {
+    d.windup -= dt;
+    if (d.windup <= 0) {
+      d.snap = DOG_SNAP_MS;
+      // The snap lands now. It catches only a grounded egg on the dog's
+      // side: jumping, or standing on the far side, both dodge it.
+      if (s.egg.z < 20 && Math.sign(s.egg.x) === d.side) dogCaught();
+    }
+  } else {
+    d.snapTimer -= dt;
+    if (d.snapTimer <= 0) {
+      d.windup = DOG_WINDUP_MS; sfx('bark');
+      d.snapTimer = DOG_SNAP_MIN_MS + Math.random() * (DOG_SNAP_MAX_MS - DOG_SNAP_MIN_MS);
+    }
+  }
+}
+
+function drawDog() {
+  const d = s.dog;
+  // Warning cue: paw prints creep in from the side the dog will use.
+  if (!d.active) {
+    const until = s.nextDogAt - s.time;
+    if (until <= DOG_WARN_MS && until > 0) {
+      const prog = 1 - until / DOG_WARN_MS;
+      ctx.save();
+      ctx.fillStyle = 'rgba(120, 72, 20, 0.55)';
+      for (let i = 0; i < 4; i++) {
+        const px = d.nextSide * (W / 2 - 16 - i * 30 * prog - i * 6);
+        const py = EGG_Y + 62 + (i % 2) * 14;
+        ctx.beginPath(); ctx.ellipse(px, py, 7, 5, 0, 0, Math.PI * 2); ctx.fill();
+      }
+      ctx.restore();
+    }
+    return;
+  }
+  const lunging = d.snap > 0;
+  const winding = d.windup > 0;
+  ctx.save();
+  let dx = d.x - d.side * (lunging ? 26 : 0);
+  if (winding) dx += Math.sin(s.time * 0.09) * 2; // wind-up shake
+  ctx.translate(dx, EGG_Y + 6);
+  ctx.scale(d.side, 1); // the dog is drawn facing left; flip when it runs on the left
+  // Contact shadow
+  ctx.fillStyle = 'rgba(0,0,0,0.18)';
+  ctx.beginPath(); ctx.ellipse(0, 44, 36, 7, 0, 0, Math.PI * 2); ctx.fill();
+  const rc = s.time * 0.02;
+  // Legs (running cycle)
+  ctx.strokeStyle = '#92400e'; ctx.lineWidth = 5; ctx.lineCap = 'round';
+  const l1 = Math.sin(rc) * 9, l2 = Math.sin(rc + Math.PI) * 9;
+  ctx.beginPath(); ctx.moveTo(-20, 14); ctx.lineTo(-22 + l1, 40); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(20, 14); ctx.lineTo(22 + l2, 40); ctx.stroke();
+  ctx.strokeStyle = '#b45309';
+  ctx.beginPath(); ctx.moveTo(-12, 14); ctx.lineTo(-14 + l2, 40); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(26, 14); ctx.lineTo(28 + l1, 40); ctx.stroke();
+  // Tail (wagging)
+  ctx.strokeStyle = '#92400e'; ctx.lineWidth = 5;
+  ctx.beginPath(); ctx.moveTo(32, -16);
+  ctx.lineTo(46, -28 + Math.sin(s.time * 0.03) * 5); ctx.stroke();
+  // Body (shaded)
+  const dogGrad = ctx.createLinearGradient(0, -30, 0, 16);
+  dogGrad.addColorStop(0, '#d97706'); dogGrad.addColorStop(1, '#92400e');
+  ctx.fillStyle = dogGrad;
+  ctx.beginPath(); ctx.ellipse(0, -6, 36, 20, 0, 0, Math.PI * 2); ctx.fill();
+  // Collar
+  ctx.fillStyle = '#ef4444';
+  ctx.fillRect(-30, -22, 8, 20);
+  // Head
+  ctx.fillStyle = dogGrad;
+  ctx.beginPath(); ctx.arc(-34, -20, 15, 0, Math.PI * 2); ctx.fill();
+  // Ear
+  ctx.fillStyle = '#78350f';
+  ctx.beginPath(); ctx.ellipse(-27, -31, 6, 10, 0.5, 0, Math.PI * 2); ctx.fill();
+  // Snout and jaw: the jaw drops on the wind-up and snap
+  ctx.fillStyle = '#b45309';
+  ctx.beginPath(); ctx.roundRect(-54, -24, 22, 9, 3); ctx.fill();
+  ctx.save();
+  ctx.translate(-52, -15);
+  ctx.rotate(winding || lunging ? 0.45 : 0.08);
+  ctx.beginPath(); ctx.roundRect(-2, 0, 20, 6, 3); ctx.fill();
+  ctx.restore();
+  // Nose and eye
+  ctx.fillStyle = '#111827';
+  ctx.beginPath(); ctx.arc(-54, -21, 3.5, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(-36, -24, 2.5, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
 }
 
 // ── UPDATE ──────────────────────────────────────────────
@@ -471,23 +743,40 @@ function update(dt) {
   if (gs !== 'playing') return;
 
   s.time += dt; s.frames++;
-  s.speed = Math.min(MAX_SPEED, INIT_SPEED + s.dist / 5000);
+  s.speed = Math.min(MAX_SPEED, INIT_SPEED + s.dist / SPEED_RAMP_DIST);
   const dd = s.speed * dt * 0.06;
   s.dist += dd;
   s.score += dd * 0.1;
   s.bgOff += dd;
   if (s.invulnTime > 0) s.invulnTime = Math.max(0, s.invulnTime - dt);
   if (s.shieldFxTime > 0) s.shieldFxTime = Math.max(0, s.shieldFxTime - dt);
+  updateParticles(dt);
+  updateDog(dt);
+  if (gs !== 'playing') return; // a dog snap may have ended the run this frame
 
   // Smooth lane movement
   const tx = s.egg.lane * LANE_W;
   s.egg.x += (tx - s.egg.x) * 0.2;
 
-  // Jump
+  // Jump physics. Landing re-arms the jump on the same frame, a buffered
+  // press fires the moment the egg lands, and lastGroundedAt feeds the
+  // coyote window in requestJump().
   if (s.egg.jumping) {
     s.egg.z += s.egg.vz;
     s.egg.vz -= GRAVITY;
-    if (s.egg.z <= 0) { s.egg.z = 0; s.egg.jumping = false; s.egg.vz = 0; }
+    if (s.egg.z <= 0) {
+      s.egg.z = 0; s.egg.jumping = false; s.egg.vz = 0;
+      s.egg.lastGroundedAt = s.time;
+    }
+  } else {
+    s.egg.lastGroundedAt = s.time;
+  }
+  if (s.egg.bufferedJumpAt >= 0) {
+    if (!s.egg.jumping && s.time - s.egg.bufferedJumpAt <= JUMP_BUFFER_MS) {
+      doJump(); // pressed just before landing: fire now
+    } else if (s.time - s.egg.bufferedJumpAt > JUMP_BUFFER_MS) {
+      s.egg.bufferedJumpAt = -1; // stale press, forget it
+    }
   }
   if (s.egg.sweat > 0) {
     s.egg.sweat = Math.max(0, s.egg.sweat - dt);
@@ -496,8 +785,10 @@ function update(dt) {
     s.egg.sweatCooldown = Math.max(0, s.egg.sweatCooldown - dt);
   }
 
-  // Spawn obstacles
-  if (s.dist > s.nextSpawn) {
+  // Spawn obstacles. Fairness: never spawn during a dog snap wind-up or
+  // snap, so no new obstacle can block both dog dodges at once.
+  const dogSnapWindow = s.dog.active && (s.dog.windup > 0 || s.dog.snap > 0);
+  if (s.dist > s.nextSpawn && !dogSnapWindow) {
     const lane = Math.floor(Math.random() * 3) - 1;
     const r = Math.random();
     let type, cat, w, h;
@@ -507,7 +798,13 @@ function update(dt) {
     else if (r < 4/5)  { type='knife';   cat='flat'; w=80; h=20; }
     else               { type='butter';  cat='flat'; w=90; h=30; }
     s.obs.push({ type, cat, lane, y: -100, w, h });
-    s.nextSpawn = s.dist + 150 + Math.random() * 200;
+    // Spacing (playtest fix): the gap grows with speed. It is at least one
+    // full jump cycle of travel times the safety factor, and at least a
+    // fixed reaction-time gap, so back-to-back obstacles stay clearable
+    // with small hops at any speed.
+    const jumpCycleDist = s.speed * (JUMP_AIRTIME_MS / 1000) * 60 * SPAWN_SAFETY;
+    const reactionDist = s.speed * (REACTION_GAP_MS / 1000) * 60;
+    s.nextSpawn = s.dist + Math.max(jumpCycleDist, reactionDist) + Math.random() * 160;
   }
 
   // Spawn whole-egg collectibles
@@ -571,19 +868,45 @@ function draw() {
     ctx.translate(-s.egg.x, -EGG_Y);
   }
 
-  // Floor tiles
+  // Facelift background: layered parallax kitchen.
+  // Far layer: warm kitchen wall.
+  const wall = ctx.createLinearGradient(0, -100, 0, H);
+  wall.addColorStop(0, '#fde68a');
+  wall.addColorStop(0.45, '#fef3c7');
+  wall.addColorStop(1, '#fff7ed');
+  ctx.fillStyle = wall;
+  ctx.fillRect(-W * 2, -H * 2, W * 4, H * 4);
+  // Mid layer: soft cabinets scrolling at a third of track speed, and a
+  // counter edge where the wall meets the track.
+  ctx.fillStyle = 'rgba(146, 64, 14, 0.14)';
+  const cabOff = (s.bgOff * 0.35) % 160;
+  for (let cx = -W * 2 - 160; cx < W * 2; cx += 160) {
+    ctx.beginPath(); ctx.roundRect(cx + cabOff, 36, 120, 92, 10); ctx.fill();
+  }
+  ctx.fillStyle = 'rgba(120, 53, 15, 0.20)';
+  ctx.fillRect(-W * 2, 148, W * 4, 14);
+  // Track: checker floor with lane shading and a soft sheen, full speed.
   const ts = 100, yOff = s.bgOff % (ts * 2);
   ctx.fillStyle = '#ffffff';
-  ctx.fillRect(-W * 2, -H * 2, W * 4, H * 4);
+  ctx.fillRect(-W * 2, 162, W * 4, H * 4);
   ctx.fillStyle = '#f1f5f9';
-  const sc = Math.ceil(W / ts);
-  for (let col = -sc; col <= sc; col++) {
+  const sc2 = Math.ceil(W / ts);
+  for (let col = -sc2; col <= sc2; col++) {
     for (let row = -4; row <= Math.ceil(H / ts) + 4; row++) {
       if (Math.abs(col % 2) === Math.abs(row % 2)) {
-        ctx.fillRect(col * ts, row * ts + yOff, ts, ts);
+        ctx.fillRect(col * ts, 162 + row * ts + yOff, ts, ts);
       }
     }
   }
+  ctx.fillStyle = 'rgba(15, 23, 42, 0.05)';
+  ctx.fillRect(-LANE_W - 2, 162, 4, H);
+  ctx.fillRect(LANE_W - 2, 162, 4, H);
+  const sheen = ctx.createLinearGradient(-W / 2, 0, W / 2, 0);
+  sheen.addColorStop(0, 'rgba(255,255,255,0)');
+  sheen.addColorStop(0.5, 'rgba(255,255,255,0.20)');
+  sheen.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = sheen;
+  ctx.fillRect(-W / 2, 162, W, H);
 
   // Obstacles
   s.obs.forEach(o => {
@@ -596,8 +919,14 @@ function draw() {
   // Whole-egg collectibles
   s.eggs.forEach(e => drawEggCollectible(e));
 
+  // Side dog (warning prints or the dog itself)
+  drawDog();
+
   // Shield crack effect (banked egg cracks instead of the player)
   if (s.shieldFxTime > 0) drawShieldCrackFx();
+
+  // Particles (pickup sparkles, shell bursts)
+  drawParticles();
 
   // Egg
   ctx.save();
@@ -622,10 +951,16 @@ function draw() {
 }
 
 function drawNormalEgg() {
-  // Body
-  ctx.fillStyle = '#ffffff';
+  // Body (facelift: shaded shell, light from the upper left, specular shine)
+  const bodyGrad = ctx.createRadialGradient(-10, -14, 6, 0, 0, 46);
+  bodyGrad.addColorStop(0, '#ffffff');
+  bodyGrad.addColorStop(0.7, '#fefce8');
+  bodyGrad.addColorStop(1, '#e7e5e4');
+  ctx.fillStyle = bodyGrad;
   ctx.beginPath(); ctx.ellipse(0, 0, 30, 40, 0, 0, Math.PI * 2); ctx.fill();
   ctx.strokeStyle = '#000'; ctx.lineWidth = 2; ctx.stroke();
+  ctx.fillStyle = 'rgba(255,255,255,0.85)';
+  ctx.beginPath(); ctx.ellipse(-11, -16, 7, 12, -0.35, 0, Math.PI * 2); ctx.fill();
   // Eyes
   ctx.fillStyle = '#000';
   ctx.beginPath(); ctx.arc(-10, -10, 4, 0, Math.PI * 2); ctx.arc(10, -10, 4, 0, Math.PI * 2); ctx.fill();
@@ -723,7 +1058,11 @@ function drawEggCollectible(e) {
   ctx.fillStyle = 'rgba(0,0,0,0.12)';
   ctx.beginPath(); ctx.ellipse(0, 28 - bob, 20, 6, 0, 0, Math.PI * 2); ctx.fill();
   ctx.rotate(spin);
-  ctx.fillStyle = '#fffbeb';
+  const eggGrad = ctx.createRadialGradient(-6, -8, 3, 0, 0, 28);
+  eggGrad.addColorStop(0, '#ffffff');
+  eggGrad.addColorStop(0.75, '#fffbeb');
+  eggGrad.addColorStop(1, '#fde68a');
+  ctx.fillStyle = eggGrad;
   ctx.strokeStyle = '#d97706'; ctx.lineWidth = 2;
   ctx.beginPath(); ctx.ellipse(0, 0, 18, 24, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
   ctx.fillStyle = 'rgba(255,255,255,0.9)';
@@ -760,7 +1099,9 @@ function drawShieldCrackFx() {
 function drawObstacle(type) {
   switch (type) {
     case 'toaster':
-      ctx.fillStyle = '#94a3b8';
+      const toastGrad = ctx.createLinearGradient(-35, -30, 35, 30);
+      toastGrad.addColorStop(0, '#e2e8f0'); toastGrad.addColorStop(0.5, '#94a3b8'); toastGrad.addColorStop(1, '#64748b');
+      ctx.fillStyle = toastGrad;
       ctx.beginPath(); ctx.roundRect(-35, -30, 70, 60, 8); ctx.fill();
       ctx.fillStyle = '#334155';
       ctx.fillRect(-25, -20, 50, 8); ctx.fillRect(-25, -5, 50, 8);
@@ -785,7 +1126,9 @@ function drawObstacle(type) {
     case 'carton':
       ctx.fillStyle = 'rgba(0,0,0,0.15)';
       ctx.beginPath(); ctx.ellipse(0, 40, 25, 10, 0, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = '#ef4444';
+      const cartonGrad = ctx.createLinearGradient(-20, -35, 20, 35);
+      cartonGrad.addColorStop(0, '#f87171'); cartonGrad.addColorStop(1, '#dc2626');
+      ctx.fillStyle = cartonGrad;
       ctx.beginPath(); ctx.roundRect(-20, -35, 40, 70, 2); ctx.fill();
       ctx.fillStyle = '#f8fafc';
       ctx.beginPath(); ctx.roundRect(-20, 20, 40, 15, 2); ctx.fill();
@@ -822,7 +1165,9 @@ function drawObstacle(type) {
       ctx.fillStyle = '#e2e8f0';
       ctx.beginPath(); ctx.roundRect(-45, -5, 90, 15, 4); ctx.fill();
       ctx.strokeStyle = '#94a3b8'; ctx.lineWidth = 2; ctx.stroke();
-      ctx.fillStyle = '#fef08a';
+      const butterGrad = ctx.createLinearGradient(-38, -20, 38, 0);
+      butterGrad.addColorStop(0, '#fefce8'); butterGrad.addColorStop(1, '#fde047');
+      ctx.fillStyle = butterGrad;
       ctx.beginPath(); ctx.roundRect(-38, -20, 76, 20, 2); ctx.fill();
       ctx.strokeStyle = '#facc15'; ctx.lineWidth = 2; ctx.stroke();
       ctx.fillStyle = '#fef9c3';

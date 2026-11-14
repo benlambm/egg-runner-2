@@ -1,4 +1,4 @@
-const CACHE = 'egg-runner-2-v1';
+const CACHE = 'egg-runner-2-v2';
 const ASSETS = ['./index.html', './manifest.json', './icons/icon-192.png', './icons/icon-512.png'];
 
 self.addEventListener('install', e => {

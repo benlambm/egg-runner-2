@@ -14,6 +14,15 @@ Egg Runner 2 is the successor to [Egg Runner](https://github.com/benlambm/egg-ru
 - **Score bonus.** Each egg pickup adds 25 points, even at a full bank — pickups still count toward your collected total and score when the bank is full.
 - **Removed obstacle.** The old egg-shaped obstacle is gone entirely: it no longer spawns, is drawn, or can be hit. The other obstacles (toaster, blender, carton, knife, butter) remain the hazards.
 
+## ✨ 2.0 facelift
+
+- **Digital-render look.** Shaded eggs with a specular shine and soft shadows that shrink as you jump, gradient-lit obstacles, a layered parallax kitchen (warm wall, soft cabinets, counter edge, shaded checker track), pickup sparkles, a shell burst when a banked egg cracks for you, and a soft glow pulse on the HUD when protection is gained or lost.
+- **Gentler difficulty (playtest fix).** The run starts a little slower, takes about twice as long to reach a modestly lower top speed, and obstacle spacing now grows with speed: at least one full jump of travel (times a safety factor) and at least a fixed reaction gap, so back-to-back obstacles stay clearable at any speed.
+- **Reliable re-jumping (playtest fix).** Jump buffering (a press up to 120 ms before landing fires on the landing frame), coyote time (a press up to 100 ms after leaving the ground still counts), and instant re-arm on the landing frame. No more eaten inputs between obstacles.
+- **The side dog 🐕 (playtester request).** Every so often, never in the first 20 seconds, paw prints and a bark warn you, then a dog runs in from one side and runs alongside for exactly 10 seconds, snapping at ground level on its side every couple of seconds after a visible wind-up. Dodge by jumping, or by standing on the far side. If it catches you, a banked egg is eaten instead and you get the usual invulnerability flicker; with an empty bank the run ends: "Eaten by the dog!" Obstacles never spawn during a snap, so both dodges always stay open.
+
+Full requirements: [SPEC.md](SPEC.md).
+
 ## 🎮 How to Play (Mobile)
 
 - **Swipe left / right** — dodge obstacles
