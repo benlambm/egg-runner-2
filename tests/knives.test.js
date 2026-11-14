@@ -140,3 +140,32 @@ test('no obstacle sits near a set of knives, so any lane can be chosen', () => {
     }
   }
 });
+
+test('knives and the dog are kept apart: none from the warning until well after it has left', () => {
+  let sets = 0, visits = 0, closest = Infinity;
+  for (let seed = 1; seed <= 30; seed++) {
+    const run = rules.createRun({ seed, tuning: { MAX_SPARES: 99 } });
+    const knifeTimes = [], dogTimes = [];
+    let warned = null, arrived = null;
+    for (let i = 0; i < 240000 / run.T.STEP_MS; i++) {
+      run.S.spares = 99;
+      run.step();
+      for (const e of run.drain()) {
+        if (e.type === 'knivesPassed') knifeTimes.push(run.S.t);
+        if (e.type === 'dogWarning') warned = run.S.t;
+        if (e.type === 'dogArrive') arrived = run.S.t;
+        if (e.type === 'dogLeave') dogTimes.push({ warned, arrived, left: run.S.t });
+      }
+    }
+    sets += knifeTimes.length; visits += dogTimes.length;
+    for (const k of knifeTimes) for (const dog of dogTimes) {
+      const gap = k < dog.arrived ? dog.arrived - k : k > dog.left ? k - dog.left : 0;
+      closest = Math.min(closest, gap);
+      assert.ok(gap >= TUNING.KNIFE_DOG_GAP_MS - 60, 'seed ' + seed + ': knives at ' + Math.round(k) + ' ms, dog there from ' +
+        Math.round(dog.arrived) + ' to ' + Math.round(dog.left));
+      assert.ok(k < dog.warned || k > dog.left, 'seed ' + seed + ': knives during the warning');
+    }
+  }
+  assert.ok(sets > 300 && visits > 100, sets + ' sets of knives, ' + visits + ' visits');
+  assert.ok(closest < TUNING.KNIFE_DOG_GAP_MS + 1500, 'the limit is really reached: closest ' + Math.round(closest) + ' ms');
+});

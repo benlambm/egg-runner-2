@@ -10,18 +10,20 @@ const NO_DOG = { DOG_FIRST_MS: [1e9, 1e9] };
 // Every obstacle row a run generates in `ms`, in order.
 function courseRows(seed, ms, tuning) {
   const run = rules.createRun({ seed, tuning: Object.assign({ MAX_SPARES: 99 }, tuning) });
-  const seen = new Map();
+  const seen = new Map(), snaps = new Map();
   for (let i = 0; i < ms / run.T.STEP_MS; i++) {
     run.S.spares = 99;
     run.step(); run.drain();
     for (const o of run.S.things) if (o.type === 'obstacle' && !seen.has(o.id)) seen.set(o.id, { d: o.d, lane: o.lane, tall: o.tall, kind: o.kind });
+    // Each planned snap, with the stretch of track kept clear around it.
+    for (const visit of run.S.dog.visits) for (const snap of visit.snaps) snaps.set(snap.windupD, snap);
   }
   const rows = [];
   for (const o of [...seen.values()].sort((a, b) => a.d - b.d)) {
     const last = rows[rows.length - 1];
     if (last && Math.abs(last.d - o.d) < 1) last.items.push(o); else rows.push({ d: o.d, items: [o] });
   }
-  return { rows, run };
+  return { rows, run, snaps: [...snaps.values()] };
 }
 
 test('the first obstacle leaves a quiet start', () => {
@@ -73,6 +75,30 @@ test('if the only way through needs two lane changes, the gap is longer', () => 
   assert.ok(cases > 20, 'cases found: ' + cases);
 });
 
+test('the first row after a dog snap gets two-lane room when it leaves only one outer lane open', () => {
+  // Around a snap the player may be in any lane: standing in the far lane,
+  // or jumping in another. A row that leaves only one outer lane open then
+  // puts somebody two lanes from the way through. It used to come as soon as
+  // the dog's clear stretch ended, however many lanes had to be crossed.
+  let cases = 0, others = 0;
+  for (let seed = 1; seed <= 40; seed++) {
+    const { rows, snaps, run } = courseRows(seed, 240000, NO_KNIVES);
+    for (const snap of snaps) {
+      const next = rows.find(row => row.d > snap.to);
+      if (!next || rows.some(row => row.d >= snap.from && row.d <= snap.to)) continue;
+      const open = [-1, 0, 1].filter(L => !next.items.some(o => o.lane === L && o.tall));
+      const ms = (next.d - snap.to) / rules.speedAt(run.T, snap.to) * 1000;
+      if (open.length === 1 && open[0] !== 0) {
+        cases++;
+        assert.ok(ms >= TUNING.GAP_TWO_LANE_EXTRA_MS - 1, 'seed ' + seed + ': only lane ' + open[0] + ' open ' + Math.round(ms) +
+          ' ms after the clear stretch at ' + Math.round(snap.to));
+      } else if (ms < 50) others++;
+    }
+  }
+  assert.ok(cases > 30, 'cases: ' + cases);
+  assert.ok(others > 30, 'other rows still follow a snap closely: ' + others);
+});
+
 test('all five obstacle kinds appear', () => {
   const { rows } = courseRows(3, 120000);
   const kinds = new Set(rows.flatMap(r => r.items.map(o => o.kind)));
@@ -95,14 +121,19 @@ test('eggs are never placed inside a tall obstacle', () => {
   }
 });
 
-// Every group of eggs a run lays out in `ms`: eggs in one lane, one spacing apart.
+// Every group of eggs a run lays out in `ms`: eggs in one lane, one spacing
+// apart. Also every tall obstacle and every set of knives it lays out.
 function eggGroups(seed, ms) {
   const run = rules.createRun({ seed, tuning: { MAX_SPARES: 99 } });
-  const eggs = new Map();
+  const eggs = new Map(), talls = new Map(), knives = new Map();
   for (let i = 0; i < ms / run.T.STEP_MS; i++) {
     run.S.spares = 99;
     run.step(); run.drain();
-    for (const o of run.S.things) if (o.type === 'egg' && !eggs.has(o.id)) eggs.set(o.id, { d: o.d, lane: o.lane, golden: o.golden, row: o.row });
+    for (const o of run.S.things) {
+      if (o.type === 'egg' && !eggs.has(o.id)) eggs.set(o.id, { d: o.d, lane: o.lane, golden: o.golden, row: o.row });
+      if (o.type === 'obstacle' && o.tall && !talls.has(o.id)) talls.set(o.id, { d: o.d, lane: o.lane });
+    }
+    for (const g of run.S.gates) if (!knives.has(g.id)) knives.set(g.id, { d: g.d });
   }
   const groups = [];
   for (const e of [...eggs.values()].sort((a, b) => a.lane - b.lane || a.d - b.d)) {
@@ -110,8 +141,49 @@ function eggGroups(seed, ms) {
     if (last && last.lane === e.lane && Math.abs(e.d - last.eggs[last.eggs.length - 1].d - TUNING.EGG_SPACING) < 1) last.eggs.push(e);
     else groups.push({ lane: e.lane, eggs: [e] });
   }
-  return { groups, run };
+  return { groups, run, talls: [...talls.values()], knives: [...knives.values()] };
 }
+
+test('eggs never lead into a tall obstacle: there is time to step in before the first egg and out after the last', () => {
+  // Whole eggs are treasure, never hazards. A tall obstacle in the eggs' own
+  // lane must be far enough away, measured as travel TIME so that it holds
+  // at top speed too. When the middle lane is blocked at the same spot the
+  // step is two lanes, and the time allowed is longer.
+  let near = 0, twoLanes = 0, least = Infinity;
+  for (let seed = 1; seed <= 30; seed++) {
+    const { groups, talls, run } = eggGroups(seed, 240000);
+    for (const g of groups) {
+      const first = g.eggs[0], last = g.eggs[g.eggs.length - 1];
+      for (const o of talls) {
+        if (o.lane !== g.lane || o.d < first.d - 1500 || o.d > last.d + 1500) continue;
+        near++;
+        const two = g.lane !== 0 && talls.some(x => x.lane === 0 && Math.abs(x.d - o.d) < 1);
+        if (two) twoLanes++;
+        const where = 'seed ' + seed + ', eggs in lane ' + g.lane + ' from ' + Math.round(first.d) + ' to ' + Math.round(last.d) + ', tall obstacle at ' + Math.round(o.d);
+        assert.ok(o.d < first.d || o.d > last.d, where + ': inside the row');
+        const before = o.d < first.d;
+        const ms = before ? (first.d - o.d) / rules.speedAt(run.T, first.d) * 1000 : (o.d - last.d) / rules.speedAt(run.T, last.d) * 1000;
+        const need = (before ? TUNING.EGG_CLEAR_BEFORE_MS : TUNING.EGG_CLEAR_AFTER_MS) + (two ? TUNING.GAP_TWO_LANE_EXTRA_MS : 0);
+        assert.ok(ms >= need - 1, where + ': only ' + Math.round(ms) + ' ms ' + (before ? 'to step in' : 'to step out') + ', need ' + need);
+        if (!before) { assert.ok(o.d - last.d >= TUNING.EGG_CLEAR_AFTER - 1, where); least = Math.min(least, ms); }
+      }
+    }
+  }
+  assert.ok(near > 2000 && twoLanes > 100, 'cases: ' + near + ', needing two lanes: ' + twoLanes);
+  assert.ok(least < 600, 'the limit is really reached: closest ' + Math.round(least) + ' ms');
+});
+
+test('eggs are never placed near knives', () => {
+  let sets = 0;
+  for (let seed = 1; seed <= 20; seed++) {
+    const { groups, knives } = eggGroups(seed, 200000);
+    sets += knives.length;
+    for (const g of groups) for (const egg of g.eggs) for (const k of knives) {
+      assert.ok(Math.abs(egg.d - k.d) >= 259, 'seed ' + seed + ': an egg ' + Math.round(Math.abs(egg.d - k.d)) + ' units from knives');
+    }
+  }
+  assert.ok(sets > 100, 'sets of knives seen: ' + sets);
+});
 
 test('eggs come alone, in short rows, and in longer chains', () => {
   const { groups } = eggGroups(9, 180000);

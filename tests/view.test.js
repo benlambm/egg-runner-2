@@ -65,6 +65,56 @@ for (const [name, [w, h]] of Object.entries(SCREENS)) {
   });
 }
 
+// Everything that must be true of the picture on a screen of w by h.
+function problems(w, h) {
+  const L = view.layout(w, h), out = [];
+  const at = (x, y, z) => view.project(L, x, y, z);
+  const tiny = 1e-6;
+  for (const [name, value] of Object.entries(L)) if (!Number.isFinite(value)) out.push(name + ' is ' + value);
+  if (!(L.sp > 0)) out.push('scale ' + L.sp);
+  if (!(L.camH >= TUNING.CAM_HEIGHT[0] - tiny && L.camH <= TUNING.CAM_HEIGHT[1] + tiny)) out.push('camera height ' + L.camH);
+  if (!(L.vanishY >= 0 && L.vanishY < L.farY && L.farY < L.eggY && L.eggY <= h)) out.push('horizon, wall and egg out of order');
+  if (at(0, 0, 0).x !== w / 2) out.push('track not centred');
+  for (const lane of [-1, 0, 1]) {
+    const x = lane * TUNING.LANE_WIDTH, feet = at(x, 0, 0), last = at(x, 0, -TUNING.TRAIL_GAP * TUNING.MAX_SPARES);
+    if (!(feet.x - 34 * feet.s >= -tiny && feet.x + 34 * feet.s <= w + tiny)) out.push('egg off the side in lane ' + lane);
+    if (!(at(x, 122 + 90, 0).y >= -tiny)) out.push('top of a jump off the screen');
+    if (!(last.y <= h + tiny && last.x - 16 * last.s >= -tiny && last.x + 16 * last.s <= w + tiny)) out.push('last spare off the screen in lane ' + lane);
+  }
+  for (const side of [-1, 1]) {
+    const dog = at(side * L.dogX, 0, TUNING.DOG_AHEAD);
+    if (!(dog.x - 72 * dog.s >= -tiny && dog.x + 72 * dog.s <= w + tiny)) out.push('dog off the screen');
+  }
+  const appear = at(0, 0, TUNING.SEE_AHEAD);
+  if (!(appear.y > L.farY && appear.y < L.eggY) || L.seeAhead !== TUNING.SEE_AHEAD) out.push('things appear at the wrong place');
+  const wide = at(100, 0, 700).x - at(0, 0, 700).x, tall = at(0, 0, 700).y - at(0, 100, 700).y;
+  if (Math.abs(wide - tall) > 1e-9 * Math.max(1, wide)) out.push('stretched');
+  return out;
+}
+
+test('odd screens: tiny, huge, very narrow, very wide and half-pixel sizes all get a sound picture', () => {
+  const odd = [[100, 100], [200, 200], [200, 2000], [2000, 200], [240, 320], [280, 653], [320, 1024], [300, 1200],
+               [904, 2316], [1080, 2640], [4000, 300], [5120, 1440], [7680, 4320], [100000, 100000], [390.5, 844.33]];
+  for (const [w, h] of odd) assert.deepEqual(problems(w, h), [], w + ' by ' + h);
+});
+
+test('every size a window can be dragged to gets a sound picture', () => {
+  for (let w = 200; w <= 4000; w += 37) {
+    for (let h = 200; h <= 3000; h += 41) assert.deepEqual(problems(w, h), [], w + ' by ' + h);
+  }
+});
+
+test('a size of zero, a missing size or a nonsense size never gives "not a number"', () => {
+  for (const [w, h] of [[0, 0], [0, 500], [500, 0], [NaN, 500], [500, NaN], [undefined, undefined], [-100, 500],
+                        [500, -100], [Infinity, 500], [500, Infinity], [0.2, 0.2], [1, 1]]) {
+    const L = view.layout(w, h);
+    for (const [name, value] of Object.entries(L)) assert.ok(Number.isFinite(value), 'layout(' + w + ', ' + h + ').' + name + ' is ' + value);
+    assert.ok(L.sp > 0 && L.w >= 1 && L.h >= 1);
+    const p = view.project(L, 120, 50, 400);
+    assert.ok(Number.isFinite(p.x) && Number.isFinite(p.y) && Number.isFinite(p.s));
+  }
+});
+
 test('a bigger screen shows more kitchen, not more track', () => {
   const phone = view.layout(390, 844), desktop = view.layout(1920, 1080);
   // Kitchen visible to the side of the track, in game units, where the egg is.

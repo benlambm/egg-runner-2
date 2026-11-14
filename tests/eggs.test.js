@@ -67,6 +67,29 @@ test('missing the middle egg of a row also breaks it', () => {
   assert.equal(run.S.spares, 0);
 });
 
+test('skipping only the egg right before the golden one still turns it ordinary in time', () => {
+  // The tightest case: every egg taken except the last whole one, then
+  // straight back into the lane for the golden egg, at every speed.
+  for (const d of [1000, 60000, 150000]) {
+    const run = emptyRun();
+    run.S.dist = d - 600;
+    const eggs = run.place.eggs(0, d, 7, true), skipped = eggs[5], gold = eggs[6];
+    runUntil(run, r => eggs[4].taken);
+    run.input('left');                               // step out past the sixth egg…
+    const events = runUntil(run, r => skipped.d - r.S.dist < -TUNING.EGG_REACH);
+    run.input('right');                              // …and back in the instant it is out of reach
+    assert.ok(gold.d - run.S.dist > TUNING.EGG_REACH, 'the golden egg is not yet in reach');
+    events.push(...runFor(run, 1500));
+    const where = 'at speed ' + Math.round(run.S.speed);
+    assert.equal(skipped.taken, false, where);
+    assert.equal(gold.taken, true, where + ': the last egg is still collected');
+    assert.equal(run.S.spares, 0, where + ': but it gives no spare');
+    assert.equal(events.filter(e => e.type === 'egg' && (e.golden || e.earned)).length, 0, where);
+    assert.equal(events.filter(e => e.type === 'goldenLost').length, 1, where);
+    assert.equal(run.S.eggs, 6, where);
+  }
+});
+
 test('you can carry at most five spares, and a golden egg at five still scores', () => {
   const run = emptyRun({ spares: 5 });
   run.place.eggs(0, 400, 3, true);
@@ -76,6 +99,12 @@ test('you can carry at most five spares, and a golden egg at five still scores',
   assert.equal(run.S.eggs, 3);
   assert.equal(events.filter(e => e.type === 'egg' && e.full).length, 1);
   assert.equal(run.S.score - Math.floor(run.S.dist / TUNING.UNITS_PER_POINT), 75);
+});
+
+test('a run can never start with more than five spares, or fewer than none', () => {
+  assert.equal(emptyRun({ spares: 99 }).S.spares, TUNING.MAX_SPARES);
+  assert.equal(emptyRun({ spares: -3 }).S.spares, 0);
+  assert.equal(emptyRun({}).S.spares, 0);
 });
 
 test('five golden rows fill the line; a sixth adds nothing', () => {

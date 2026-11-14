@@ -23,6 +23,22 @@ for (const kind of ['toaster', 'blender', 'carton']) {
   });
 }
 
+test('tall obstacles cannot be jumped, however the jump is timed and at any speed', () => {
+  for (const d of [600, 60000, 150000]) {                    // start speed, mid ramp, top speed
+    for (let lead = 0; lead <= 640; lead += 20) {            // jump this long before it arrives
+      const run = emptyRun();
+      run.S.dist = d - 1000;
+      const o = run.place.obstacle('carton', 0, d);
+      let jumped = false, speed = 0;
+      runFor(run, 3000, r => {
+        if (!jumped && (o.d - r.S.dist) / r.S.speed * 1000 <= lead) { r.input('jump'); jumped = true; speed = r.S.speed; }
+      });
+      assert.equal(run.S.over, true, 'a jump ' + lead + ' ms before a carton at speed ' + Math.round(speed) + ' got over it');
+      assert.equal(run.S.cause, 'obstacle');
+    }
+  }
+});
+
 for (const kind of ['knife', 'butter']) {
   test('flat ' + kind + ': can be jumped', () => {
     const run = emptyRun();
@@ -77,6 +93,68 @@ test('late press: a jump just after touching a flat obstacle still counts', () =
   run.input('jump');
   runFor(run, 2000);
   assert.equal(run.S.over, false);
+});
+
+test('late press at every speed: a jump anywhere inside the grace saves you for good', () => {
+  // Near top speed a flat obstacle slides out from under the egg before the
+  // grace is over. A jump pressed in those last moments used to take off and
+  // then be hit in midair half a second later, by an obstacle far behind.
+  for (const d of [600, 30000, 60000, 75000, 85000, 100000, 150000]) {     // start speed … top speed
+    for (let late = 0; late * TUNING.STEP_MS < TUNING.LATE_JUMP_GRACE_MS; late++) {
+      const run = emptyRun({ spares: 1 });
+      run.S.dist = d - 1000;
+      const o = run.place.obstacle('butter', 0, d);
+      runUntil(run, r => o.d - r.S.dist <= o.half + r.T.PLAYER_HALF_DEPTH);     // it has just touched
+      const speed = Math.round(run.S.speed);
+      runFor(run, late * run.T.STEP_MS);
+      assert.equal(run.S.spares, 1, 'not hit yet');
+      run.input('jump');
+      const events = runFor(run, 1500);                    // well past the landing
+      const where = 'speed ' + speed + ', jump pressed ' + Math.round(late * run.T.STEP_MS) + ' ms after the touch';
+      assert.equal(run.S.spares, 1, where + ': hit anyway, ' + Math.round(o.d - run.S.dist) + ' units behind the egg');
+      assert.equal(o.knocked, null, where);
+      assert.equal(count(events, 'closeCall'), 1, where + ': it is a close call');
+    }
+  }
+});
+
+test('a flat obstacle whose grace runs out while you blink is let go for good', () => {
+  // Hand-built: a flat obstacle, then a toaster just behind it that takes a
+  // spare and starts the blink before the flat one's grace is over. The flat
+  // one must not come back and hit when the blink ends. (The blink is
+  // shortened so it ends while the obstacle is still remembered.)
+  const run = emptyRun({ spares: 2, tuning: { BLINK_MS: 300 } });
+  run.S.dist = 150000;                                     // top speed
+  const flat = run.place.obstacle('butter', 0, 151000);
+  run.place.obstacle('toaster', 0, 151074);
+  const events = runFor(run, 2500);
+  assert.equal(count(events, 'spareLost'), 1, 'only the toaster hits');
+  assert.equal(run.S.spares, 1);
+  assert.equal(flat.knocked, null);
+});
+
+test('coming down on the back half of a flat obstacle clears it; coming down on its front half does not', () => {
+  // The jump is started early, so the egg is already dropping as the
+  // obstacle passes under it. What matters is which half is under the egg
+  // when it gets too low to clear.
+  let cleared = 0, hit = 0;
+  for (let ahead = 150; ahead <= 260; ahead += 2) {          // units between egg and obstacle when the jump starts
+    const run = emptyRun();
+    const o = run.place.obstacle('butter', 0, 900);
+    runUntil(run, r => o.d - r.S.dist <= ahead);
+    run.input('jump');
+    let lowAt = null;                                        // where the obstacle is when the egg drops below clearing height
+    runFor(run, 1500, r => {
+      const p = r.S.player;
+      if (lowAt === null && !p.grounded && p.vy < 0 && p.y < TUNING.FLAT_CLEAR_HEIGHT) lowAt = o.d - r.S.dist;
+    });
+    const touch = o.half + run.T.PLAYER_HALF_DEPTH;
+    if (lowAt > touch) continue;                             // it landed before reaching the obstacle: not this check
+    if (lowAt < -touch) { assert.equal(run.S.over, false); continue; }   // right over it
+    if (lowAt <= 0) { cleared++; assert.equal(run.S.over, false, 'came down with the obstacle ' + lowAt.toFixed(0) + ' units ahead: back half'); }
+    else { hit++; assert.equal(run.S.over, true, 'came down with the obstacle ' + lowAt.toFixed(0) + ' units ahead: front half'); }
+  }
+  assert.ok(cleared >= 5 && hit >= 5, 'cases: ' + cleared + ' cleared, ' + hit + ' hit');
 });
 
 test('a press later than the grace does not save you', () => {
@@ -168,6 +246,21 @@ test('close call: a last-moment lane switch counts too', () => {
   assert.equal(count(events, 'closeCall'), 1);
   runFor(run, 1000);
   assert.equal(run.S.over, false);
+});
+
+test('a lane switch is a close call only at the last moment, at every speed', () => {
+  for (const d of [600, 60000, 150000]) {
+    for (const [msBefore, close] of [[60, true], [TUNING.CLOSE_CALL_SWITCH_MS - 40, true], [TUNING.CLOSE_CALL_SWITCH_MS + 60, false], [900, false]]) {
+      const run = emptyRun();
+      run.S.dist = d - 1500;
+      const o = run.place.obstacle('toaster', 0, d);
+      const touch = o.half + run.T.PLAYER_HALF_DEPTH;
+      runUntil(run, r => (o.d - touch - r.S.dist) / r.S.speed * 1000 <= msBefore);    // this long before it would touch
+      run.drain();
+      run.input('left');
+      assert.equal(count(run.drain(), 'closeCall'), close ? 1 : 0, 'switched ' + msBefore + ' ms before a toaster at speed ' + Math.round(run.S.speed));
+    }
+  }
 });
 
 test('an early lane switch is not a close call', () => {

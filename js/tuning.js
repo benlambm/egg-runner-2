@@ -42,7 +42,10 @@
     GRAVITY: 2880,             // units per second, per second
     JUMP_SPEED: 840,           // upward speed at take-off
     JUMP_BUFFER_MS: 140,       // EARLY press: a jump pressed this long before
-                               // landing still fires, on the landing frame
+                               // landing still fires, on the landing frame.
+                               // (One pressed in the air while the dog winds up
+                               // is remembered however early it came, so one
+                               // press always answers a wind-up.)
     LATE_JUMP_GRACE_MS: 90,    // LATE press: a flat obstacle may already be
                                // touching the egg for this long and a jump still
                                // clears it
@@ -66,7 +69,10 @@
     GAP_EXTRA_START_MS: [350, 1000],   // extra gap at the start (least, most)
     GAP_EXTRA_TOP_MS: [60, 520],       // extra gap at top speed (least, most)
     GAP_TWO_LANE_EXTRA_MS: 420,   // added when the only way through needs two
-                                  // lane changes in a row
+                                  // lane changes in a row. The first row after
+                                  // a dog snap gets it too, when it leaves only
+                                  // one outer lane open (a player dodging the
+                                  // dog may be standing two lanes away).
 
     // Rows that block two lanes at once (one lane is always left open).
     DOUBLE_ROW_CHANCE_START: 0.10,     // chance at the start of a run
@@ -93,9 +99,17 @@
     GOLDEN_CHAIN_CHANCE_START: 0.04,  // share of egg groups that are a golden
                                       // chain early in a run…
     GOLDEN_CHAIN_CHANCE_TOP: 0.15,    // …rising to this at top speed
-    EGG_CLEAR_BEFORE_MS: 300,  // no tall obstacle in an egg row's lane this long
-                               // before its first egg…
-    EGG_CLEAR_AFTER: 90,       // …or this far (units) after its last
+    // Eggs never lead into a tall obstacle. One in the eggs' own lane is kept
+    // this far away, as travel time, so there is time to step into the lane
+    // before the first egg and out of it after the last:
+    EGG_CLEAR_BEFORE_MS: 300,  //   before the first egg
+    EGG_CLEAR_AFTER_MS: 300,   //   after the last egg
+    EGG_CLEAR_AFTER: 90,       //   …and never nearer than this many units after
+                               //   the last egg, however slow the run. (This
+                               //   distance used to be the whole rule, but at
+                               //   top speed 90 units is a tenth of a second.)
+    // When the lane beside is blocked too, the step is two lanes and
+    // GAP_TWO_LANE_EXTRA_MS (above) is added to both times.
 
     // ── GETTING HIT ─────────────────────────────────────────────────────
     BLINK_MS: 1500,            // after a hit: blinking, and nothing can hurt you

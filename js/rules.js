@@ -113,6 +113,7 @@
         side: 1,                  // -1 left, 1 right
         phase: 'idle',            // idle | windup | snap
         phaseUntil: 0,
+        windupAt: 0,              // when the current wind-up began
         arrivedAt: 0, leftAt: 0,
         snapIndex: 0,
         visits: []                // planned visits, nearest first
@@ -149,6 +150,14 @@
       var z = S.gen.zones;
       for (var i = 0; i < z.length; i++) if (d >= z[i].from && d <= z[i].to) return z[i];
       return null;
+    }
+    // The dog's clear stretch that ends between two points on the track, if any.
+    function snapEndingBetween(a, b) {
+      var z = S.gen.zones, found = null;
+      for (var i = 0; i < z.length; i++) {
+        if (z[i].why === 'dog' && z[i].to >= a && z[i].to < b && (!found || z[i].to > found.to)) found = z[i];
+      }
+      return found;
     }
     function dogVisitNear(from, to) {
       var v = S.dog.visits, pad = 0;
@@ -269,7 +278,19 @@
       var d = F + v * gapMs / 1000;
       // Keep clear of dog snaps and knives: slide the row past them.
       var zone, guard = 0;
-      while ((zone = inZone(d)) && guard++ < 20) d = zone.to + 1;
+      while (guard++ < 20) {
+        if ((zone = inZone(d))) { d = zone.to + 1; continue; }
+        // Around a snap the player may be in any lane: standing in the far
+        // lane, or jumping in one of the others. If this is the first row
+        // after a snap and it leaves only one outer lane open, somebody is
+        // two lanes from the way through, and gets the same extra room as
+        // two lane changes get between rows.
+        zone = snapEndingBetween(F, d);
+        if (!zone || passable.length !== 1 || passable[0] === 0) break;
+        var least = zone.to + speedAt(T, zone.to) * T.GAP_TWO_LANE_EXTRA_MS / 1000;
+        if (d >= least) break;
+        d = least;
+      }
       for (i = 0; i < items.length; i++) {
         addObstacle(items[i].kind, items[i].lane, d);
       }
@@ -296,16 +317,33 @@
     // in a golden egg. Golden eggs never appear any other way, and chains are
     // rare early in a run.
     function lanesFreeForEggs(d0, d1) {
-      var before = speedAt(T, d0) * T.EGG_CLEAR_BEFORE_MS / 1000, i;
+      var v0 = speedAt(T, d0), v1 = speedAt(T, d1), i;
       for (i = 0; i < S.gates.length; i++) {
         if (S.gates[i].d > d0 - 260 && S.gates[i].d < d1 + 260) return [];   // keep clear of knives
+      }
+      // Is there a tall obstacle at this spot in this lane?
+      function tallAt(lane, d) {
+        for (var q = 0; q < S.things.length; q++) {
+          var x = S.things[q];
+          if (x.type === 'obstacle' && x.tall && x.lane === lane && Math.abs(x.d - d) < 1) return true;
+        }
+        return false;
       }
       return LANES.filter(function (L) {
         for (var j = 0; j < S.things.length; j++) {
           var o = S.things[j];
           if (o.lane !== L) continue;
-          if (o.type === 'obstacle' && o.tall && o.d > d0 - before && o.d < d1 + T.EGG_CLEAR_AFTER) return false;
           if (o.type === 'egg' && o.d > d0 - T.EGG_SPACING && o.d < d1 + T.EGG_SPACING) return false;
+          if (o.type !== 'obstacle' || !o.tall) continue;
+          // A tall obstacle in the eggs' lane. There must be time to step into
+          // the lane once it has passed (before the first egg), and time to
+          // step out of the lane before it arrives (after the last egg), so
+          // that eggs never lead the player into it. If the lane beside is
+          // blocked at the same spot the step is two lanes, which takes longer.
+          var extra = (L !== 0 && tallAt(0, o.d)) ? T.GAP_TWO_LANE_EXTRA_MS : 0;
+          var before = v0 * (T.EGG_CLEAR_BEFORE_MS + extra) / 1000;
+          var after = Math.max(T.EGG_CLEAR_AFTER, v1 * (T.EGG_CLEAR_AFTER_MS + extra) / 1000);
+          if (o.d > d0 - before && o.d < d1 + after) return false;
         }
         return true;
       });
@@ -493,7 +531,7 @@
             dog.visits.shift();
             emit('dogLeave', { side: dog.side });
           } else if (snap && S.dist >= snap.windupD) {
-            dog.phase = 'windup'; dog.phaseUntil = S.t + T.DOG_WINDUP_MS;
+            dog.phase = 'windup'; dog.windupAt = S.t; dog.phaseUntil = S.t + T.DOG_WINDUP_MS;
             emit('dogWindup', { side: dog.side });
           }
         } else if (dog.phase === 'windup') {
@@ -527,8 +565,12 @@
         if (p.y <= 0) {
           p.y = 0; p.vy = 0; p.grounded = true;
           emit('land');
-          // You can jump again the moment you land.
-          if (S.t - p.jumpPressedAt <= T.JUMP_BUFFER_MS) doJump();
+          // You can jump again the moment you land: a press made a little
+          // before landing counts. A press made in the air after the dog began
+          // winding up counts however early it came, so that answering a
+          // wind-up with a jump always works, even from the middle of a jump.
+          var forTheDog = S.dog.phase === 'windup' && p.jumpPressedAt >= S.dog.windupAt;
+          if (forTheDog || S.t - p.jumpPressedAt <= T.JUMP_BUFFER_MS) doJump();
         }
       }
       // The drawn position slides after the lane.
@@ -555,17 +597,22 @@
         if (o.tall) { if (touching) hit('obstacle', o); continue; }
         // Flat obstacle. The egg is over it when high enough, or taking off.
         var over = p.y >= T.FLAT_CLEAR_HEIGHT || (!p.grounded && p.vy > 0);
-        if (touching) {
-          if (over) {
-            // It passes underneath: a close call.
-            o.touchAt = null;
-            if (!o.jumped) { o.jumped = true; closeCall('jump'); }
-          } else if (o.touchAt == null) {
-            if (rel <= 0) o.ghost = true; // came down on its back half: cleared
-            else o.touchAt = S.t;         // ran into it: a late jump can still save you
-          }
+        if (over && (touching || o.touchAt != null)) {
+          // It passes underneath, or a late jump got the egg off it in time:
+          // a close call. The late jump must count even when the obstacle has
+          // already slid out from under the egg, which happens near top speed.
+          // Otherwise the hit would wait and land when the egg came back down.
+          o.touchAt = null;
+          if (!o.jumped) { o.jumped = true; closeCall('jump'); }
+        } else if (touching && o.touchAt == null) {
+          if (rel <= 0) o.ghost = true;   // came down on its back half: cleared
+          else o.touchAt = S.t;           // ran into it: a late jump can still save you
         }
-        if (o.touchAt != null && !over && S.t - o.touchAt >= T.LATE_JUMP_GRACE_MS) hit('obstacle', o);
+        if (o.touchAt != null && !over && S.t - o.touchAt >= T.LATE_JUMP_GRACE_MS) {
+          // While blinking nothing can hurt: the obstacle is let go for good,
+          // so it cannot come back and hit once the blink is over.
+          if (!hit('obstacle', o)) o.ghost = true;
+        }
       }
 
       // Chopping knives. Jumping does not help: the blade comes from above.
@@ -605,6 +652,12 @@
     // Advance by real time (any number of ms), in fixed steps.
     var carry = 0;
     function update(ms) {
+      // A frame time that is not a real, positive number (a clock hiccup, or
+      // a missing value) is ignored. Without this, one "not a number" would
+      // stick in `carry` and the run would never move again, and a negative
+      // one would freeze the run until it had been paid back.
+      ms = Number(ms);
+      if (!(ms > 0)) return;
       carry += ms;
       var n = 0;
       while (carry >= T.STEP_MS && n++ < 60) { step(); carry -= T.STEP_MS; }

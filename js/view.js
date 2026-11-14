@@ -19,6 +19,11 @@
   // Work out the camera for a screen of w by h pixels.
   function layout(w, h, T) {
     T = T || BASE;
+    // A hidden or not-yet-measured page can report a size of zero (or
+    // nothing at all). Treat any size that is not a real one as a single
+    // pixel, so every number below is usable instead of "not a number".
+    if (!(w >= 1 && w < Infinity)) w = 1;
+    if (!(h >= 1 && h < Infinity)) h = 1;
     var sp = Math.min(w / T.VIEW_FIT[0], h / T.VIEW_FIT[1]);   // pixels per unit at the egg
     // The last spare in the line is the nearest thing that must stay on screen.
     var nearest = T.TRAIL_GAP * T.MAX_SPARES;
