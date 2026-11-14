@@ -34,7 +34,9 @@ html, body {
 .hud {
   position: fixed; left: 0; right: 0; top: 0;
   display: flex; justify-content: space-between; align-items: flex-start;
-  padding: calc(env(safe-area-inset-top, 0px) + 10px) calc(env(safe-area-inset-right, 0px) + 12px) 0 calc(env(safe-area-inset-left, 0px) + 12px);
+  padding-block: calc(env(safe-area-inset-top, 0px) + 10px) 0;
+  padding-left: max(12px, env(safe-area-inset-left, 0px));
+  padding-right: max(12px, env(safe-area-inset-right, 0px));
   pointer-events: none;
 }
 .hud-panel {
@@ -55,8 +57,9 @@ html, body {
 .screen {
   position: fixed; inset: 0; z-index: 10;
   display: flex; align-items: center; justify-content: center;
-  padding: calc(env(safe-area-inset-top, 0px) + 12px) calc(env(safe-area-inset-right, 0px) + 12px)
-           calc(env(safe-area-inset-bottom, 0px) + 12px) calc(env(safe-area-inset-left, 0px) + 12px);
+  padding-block: calc(env(safe-area-inset-top, 0px) + 12px) calc(env(safe-area-inset-bottom, 0px) + 12px);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
   background: rgba(255, 246, 224, 0.72);
 }
 .screen.top { z-index: 20; background: rgba(255, 246, 224, 0.9); }
@@ -153,7 +156,7 @@ kbd {
 }
 @media (orientation: landscape) and (max-height: 460px) {
   html, body { font-size: 18px; }
-  .screen { padding-top: calc(env(safe-area-inset-top, 0px) + 6px); padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 6px); }
+  .screen { padding-block: calc(env(safe-area-inset-top, 0px) + 6px) calc(env(safe-area-inset-bottom, 0px) + 6px); }
   .card:not(.narrow) { padding: 8px 18px 10px; border-radius: 22px; }
   .hint, .tagline { display: none; }
   .results-line { display: none; }

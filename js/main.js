@@ -401,7 +401,9 @@
   // Offline play: the service worker keeps a copy of every file.
   if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
     window.addEventListener('load', function () {
-      navigator.serviceWorker.register('sw.js').catch(function () { /* still playable online */ });
+      // Some app wrappers refuse service workers outright; the game does not need one to play.
+      try { navigator.serviceWorker.register('sw.js').catch(function () { /* still playable online */ }); }
+      catch (e) { /* still playable online */ }
     });
   }
 
