@@ -32,6 +32,7 @@ npm test                  # the rules, in Node (about 15 seconds, 256 checks)
 ER_LONG=1 npm test        # the same plus a long soak (about 6 minutes)
 npm run test:browser      # the real game in a headless browser (about 80 seconds, 135 checks; needs Playwright)
 npm run shots -- <folder> # screenshots of set scenes, for looking at art changes
+npm run icons -- options <folder>   # draw the app icon designs (install <letter> writes one to icons/)
 ```
 
 `npm test` has no dependencies. It covers every rule in DESCRIPTION.md, including:
@@ -65,7 +66,7 @@ npm run shots -- <folder> # screenshots of set scenes, for looking at art change
 
 The 3D look is the old arcade trick. Each thing is a flat picture, drawn at `size = CAM_BACK / (CAM_BACK + distance ahead)` and placed nearer the horizon the farther away it is. Movement is still three lanes and a jump.
 
-There are no asset files except the two app icons.
+There are no asset files except the two app icons, and those are drawn from the game's own art by `tools/make-icons.js`.
 
 ## Shipping
 
@@ -141,7 +142,7 @@ Each is the simplest option that kept the game fair. Most are one number in `js/
 - A menu too tall for the screen is drawn up to 20% smaller before it scrolls.
 - After switching away the game stays paused until you press Keep Running.
 - Phones that support it buzz briefly on a hit.
-- The app icons are unchanged.
+- The app icon shows the egg leaping in front of a "2", with three spare eggs hopping behind it. It is drawn by `npm run icons -- install B` from the same art code as the game, so it can be redrawn if the art changes. The "2" tells it apart from the original Egg Runner.
 
 ## License
 

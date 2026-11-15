@@ -155,17 +155,23 @@ function paintInPage(id) {
     shadow(520, 902, 180, 40, 0.42);
     egg(512, 896, 5.7, { t: 95, pace: 0.6 });
   } else if (id === 'B') {
-    // Big jump: the egg leaping for joy in front of a bold "2".
+    // Big jump: the egg leaping for joy in front of a bold "2", with its
+    // spare eggs hopping along behind like ducklings.
     sunburst(512, 470, '#ffd84a', '#ffbf1f', 14);
     floorStrip(800);
-    c.font = '900 560px ui-rounded, "Arial Rounded MT Bold", system-ui, sans-serif';
+    c.font = '900 540px ui-rounded, "Arial Rounded MT Bold", system-ui, sans-serif';
     c.textAlign = 'center'; c.textBaseline = 'alphabetic'; c.lineJoin = 'round';
-    c.lineWidth = 44; c.strokeStyle = '#b3202f'; c.strokeText('2', 706, 690);
-    c.fillStyle = '#e5484d'; c.fillText('2', 706, 690);
-    c.lineWidth = 10; c.strokeStyle = 'rgba(255,255,255,0.55)'; c.strokeText('2', 700, 684);
-    shadow(410, 838, 130, 26, 0.3);
-    egg(404, 742, 6.4, { air: 0.95, vy: 0.5, t: 60 }, -0.07);
-    sparkle(196, 250, 34); sparkle(282, 168, 18); sparkle(842, 250, 26); sparkle(150, 560, 20); sparkle(866, 700, 16);
+    c.lineWidth = 44; c.strokeStyle = '#b3202f'; c.strokeText('2', 712, 640);
+    c.fillStyle = '#e5484d'; c.fillText('2', 712, 640);
+    c.lineWidth = 10; c.strokeStyle = 'rgba(255,255,255,0.55)'; c.strokeText('2', 706, 634);
+    // The ducklings: each one a little lower in its hop than the one in front.
+    [[772, 4, 3.5], [660, 30, 3.7], [544, 62, 3.9]].forEach(d => {
+      shadow(d[0] + 4, 866, 17 * d[2] * (1 - d[1] / 300), 4.6 * d[2], 0.36 - d[1] / 400);
+      pic('spare', d[0], 862 - d[1], d[2]);
+    });
+    shadow(396, 848, 130, 26, 0.3);
+    egg(390, 726, 6.2, { air: 0.95, vy: 0.5, t: 60 }, -0.07);
+    sparkle(196, 250, 34); sparkle(282, 168, 18); sparkle(842, 236, 26); sparkle(150, 560, 20);
   } else if (id === 'C') {
     // Knife hop: the old icon's egg and knife, redrawn in the new style.
     sunburst(512, 440, '#f2675f', '#e5484d', 14);
