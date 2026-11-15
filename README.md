@@ -6,6 +6,14 @@ You are a cartoon egg running endlessly through a kitchen. Get as far as you can
 
 This edition was rebuilt from scratch and replaces the older flat version. How the game plays is defined in [DESCRIPTION.md](DESCRIPTION.md); this file covers how the build is put together.
 
+## Where it comes from
+
+The original [Egg Runner](https://github.com/benlambm/egg-runner) ([play it](https://benlambm.github.io/egg-runner/)) was first committed on March 21, 2026: a four file Progressive Web App, vanilla HTML, CSS and JavaScript, no build step, written in a morning.
+
+This rebuild landed on November 14, 2026. It was built from [DESCRIPTION.md](DESCRIPTION.md), a plain language account of the game, and it keeps the same three lanes, the same egg and the same kitchen, at roughly twelve and a half thousand lines, with automated players that prove the courses are fair.
+
+The two repos are kept as a pair on purpose. Together they chart how AI assisted building changed across 2026: in March, an assistant helped a person write a small game by hand; in November, an agent built and tested a far larger one from a description the person wrote. The design barely moved. The leverage did.
+
 ## Try it
 
 The game is plain HTML, CSS and JavaScript. There is nothing to install and no build step.
